@@ -1,0 +1,114 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN" "http://www.w3.org/TR/REC-html40/loose.dtd">
+<html><body>
+<a class="linktag button-signin" href="//localhost-studio.code.org:3000/users/sign_in" id="signin_button">
+<div class="header_button header_user" id="header_user_signin">
+<span>Sign in</span>
+<div class="signin_callout_wrapper"></div>
+</div>
+</a>
+<script>
+  window.cookieEnvSuffix = '_development';
+  // Use function closure to avoid cluttering global namespace.
+  (function() {
+    // Ideally would use environment_specific_cookie_name, but that's not currently
+    // available to us in pegasus
+    var cookieKey = '_shortName' + window.cookieEnvSuffix;
+    // Share cookie with top-level domain.
+    var topLevelDomain = document.location.hostname.split('.').slice(-2).join('.');
+  
+    // Provide current_user.short_name to cached pages via session cookie.
+    // There is apps code that also depends on this query-selector, so if changes are made
+    // here we should be sure to also update other locations.
+    var displayNameSpan = document.querySelector('#header_display_name');
+  
+    function retrieveUserShortName(element) {
+      if (element) {
+        var cookieMeta = "path=/;domain=" + topLevelDomain;
+        var cookieMatch = document.cookie.match('(^|;) ?' + cookieKey + '=([^;]*)(;|$)');
+        var storedName = cookieMatch && cookieMatch[2];
+        var dataName = element.dataset.shortname;
+        var id = element.dataset.id;
+        if (storedName && !id) {
+          // Use textContent to prevent HTML injection vulnerability
+          element.textContent = element.textContent.replace(dataName, decodeURI(storedName));
+        }
+      }
+    }
+  
+    retrieveUserShortName(displayNameSpan);
+  
+    function hideUserOptions() {
+      $('.user_options').slideUp();
+      $('.user_menu_arrow_down').show();
+      $('.user_menu_arrow_up').hide();
+      $(document).off('click', hideUserOptions);
+    }
+    $(document).ready(function() {
+      $('.user_menu').on('keypress click', function (e) {
+        if ((e.type === 'keypress' && e.which === 13) || e.type === 'click') {
+          if ($('.user_options').is(':hidden')) {
+            e.stopPropagation();
+            $('.user_options').slideDown();
+            $('.user_menu_arrow_down').hide();
+            $('.user_menu_arrow_up').show();
+            $(document).on('keypress click', hideUserOptions);
+            hideCreateOptions()
+            $("#hamburger-icon").removeClass('active');
+            $("#help-icon").removeClass('active');
+            $('#hamburger #hamburger-contents').slideUp();
+            $('#help-button #help-contents').slideUp();
+          }
+        }
+      });
+      $('.user_options').click(function (e) {
+        e.stopPropagation(); // Clicks inside the popup shouldn't close it
+      });
+      $('.user_options a:last').click(function (e) {
+        // this partial can be on non-dashboard pages.
+        if (typeof dashboard !== 'undefined') {
+          dashboard.clientState.reset();
+        } else {
+          // Keep in sync with clientState#reset.
+          try {
+            sessionStorage.clear();
+          } catch (e) {}
+        }
+      });
+    });
+  
+    function hideCreateOptions() {
+      $('.create_options').slideUp();
+      $('.create_menu_arrow_down').show();
+      $('.create_menu_arrow_up').hide();
+      $(document).off('click', hideCreateOptions);
+    }
+    $(document).ready(function() {
+      $('.create_menu').on('keypress click', function (e) {
+        if ((e.type === 'keypress' && e.which === 13) || e.type === 'click') {
+          if ($('.create_options').is(':hidden')) {
+            e.stopPropagation();
+            $('.create_options').slideDown();
+            $('.create_menu_arrow_down').hide();
+            $('.create_menu_arrow_up').show();
+            $(document).on('keypress click', hideCreateOptions);
+            hideUserOptions()
+            $("#hamburger-icon").removeClass('active');
+            $("#help-icon").removeClass('active');
+            $('#hamburger #hamburger-contents').slideUp();
+            $('#help-button #help-contents').slideUp();
+          }
+        }
+      });
+      $('.create_options').click(function (e) {
+        e.stopPropagation(); // Clicks inside the popup shouldn't close it
+      });
+    });
+  
+  
+    if (typeof dashboard !== 'undefined') {
+      dashboard.pairing.init('//localhost-studio.code.org:3000/pairing', hideUserOptions, false);
+    }
+  })();
+</script>
+
+</body></html>
