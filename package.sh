@@ -1,32 +1,71 @@
 #!/bin/bash
 
-COURSE=mc
-LESSON=1
-LEVELS=14
+# This is generally best run against a development server that is using the
+# minimized JS assets. Therefore, locals.yml has:
+#
+#   optimize_webpack_assets: true
+#   use_my_apps: true
+#
+# These above settings set. And then running yarn build:dist in `apps`
+
+echo "Starting crawler..."
+
+if [[ -z "${MODULE}" ]]; then
+  MODULE=$1
+fi
+
+if [ -f ./modules/${MODULE}.sh ]; then
+  source ./modules/${MODULE}.sh
+else
+  if [[ -z "${MODULE}" ]]; then
+    echo "Error: No module specified."
+  else
+    echo "Error: Cannot find '${MODULE}.sh' in './modules'."
+  fi
+  echo "Usage: ./package.sh \${MODULE}"
+  exit 1
+fi
+
+echo "Crawling ${COURSE}/lessons/${LESSON}/levels/1...${LEVELS}"
+
+# Where the code-dot-org repo is
+CODE_DOT_ORG_REPO_PATH=../code-dot-org
+
+if [ ! -d ${CODE_DOT_ORG_REPO_PATH} ]; then
+  echo "Error: Cannot find the 'code-dot-org' repo in \${CODE_DOT_ORG_REPO_PATH} as ${CODE_DOT_ORG_REPO_PATH}."
+  exit 1
+else
+  echo "Using assets found locally in $(realpath ${CODE_DOT_ORG_REPO_PATH})."
+fi
 
 STUDIO_DOMAIN=http://localhost-studio.code.org:3000
 MAIN_DOMAIN=http://localhost.code.org:3000
+CURRICULUM_DOMAIN=https://curriculum.code.org
 VIDEO_DOMAIN=http://videos.code.org
 
 # Some links are in the form `//localhost-studio.code.org:3000`, etc
 BASE_STUDIO_DOMAIN=${STUDIO_DOMAIN:5}
 BASE_MAIN_DOMAIN=${MAIN_DOMAIN:5}
+BASE_CURRICULUM_DOMAIN=${CURRICULUM_DOMAIN:6}
 BASE_VIDEO_DOMAIN=${VIDEO_DOMAIN:5}
 
-URLS=
+LEVEL_URLS=
 for (( i=1; i<=${LEVELS}; i++ ))
 do
-  URLS="${URLS}${STUDIO_DOMAIN}/s/${COURSE}/lessons/${LESSON}/levels/${i} "
+  LEVEL_URLS="${LEVEL_URLS}${STUDIO_DOMAIN}/s/${COURSE}/lessons/${LESSON}/levels/${i} "
 done
 
 mkdir -p build
 PREFIX=build/${COURSE}_${LESSON}
 
-wget --domains=localhost-studio.code.org,localhost.code.org --page-requisites --convert-links --directory-prefix ${PREFIX} --adjust-extension --no-host-directories --continue -H --span-hosts --tries=2 --reject-regex="[.]dmg$|[.]exe$|[.]mp4$" --exclude-domains=studio.code.org,video.code.org ${URLS}
+# Remove old path
+if [ -d ${PREFIX} ]; then
+  rm -r ${PREFIX}
+fi
+
+wget --domains=localhost-studio.code.org,localhost.code.org --page-requisites --convert-links --directory-prefix ${PREFIX} --adjust-extension --no-host-directories --continue -H --span-hosts --tries=2 --reject-regex="[.]dmg$|[.]exe$|[.]mp4$" --exclude-domains=curriculum.code.org,studio.code.org,video.code.org ${LEVEL_URLS}
 
 # Other dynamic content we want wholesale downloaded (transcripts for the videos)
-
-URLS="notes/mc_intro notes/mc_repeat notes/mc_if_statements"
 
 for url in ${URLS}
 do
@@ -36,18 +75,37 @@ do
 done
 
 # Fix-ups
-# mc_intro references image assets relative to itself... we must move this to be relative to the level
-mkdir -p ${PREFIX}/s/${COURSE}/lessons/${LESSON}/assets
-mv ${PREFIX}/assets/notes ${PREFIX}/s/${COURSE}/lessons/${LESSON}/assets/.
+# video transcripts reference image assets relative to itself...
+# we must move this to be relative to the level
+if [ -d ${PREFIX}/assets/notes ]; then
+  mkdir -p ${PREFIX}/s/${COURSE}/lessons/${LESSON}/assets
+  mv ${PREFIX}/assets/notes ${PREFIX}/s/${COURSE}/lessons/${LESSON}/assets/.
+fi
 
 # Individual fix-ups
+FIXUP_PATHS=
+
 for (( i=1; i<=${LEVELS}; i++ ))
 do
   path="${PREFIX}/s/${COURSE}/lessons/${LESSON}/levels/${i}.html"
+  FIXUP_PATHS="${FIXUP_PATHS} ${path}"
+done
 
+# Also add the javascript
+for js in `ls ${PREFIX}/assets/js/*.js`
+do
+  FIXUP_PATHS="${FIXUP_PATHS} ${js}"
+done
+
+for path in ${FIXUP_PATHS}
+do
   # Ensure that references to the main domain are also relative links
   sed "s;${MAIN_DOMAIN};../../../../..;gi" -i ${path}
   sed "s;${BASE_MAIN_DOMAIN};../../../../..;gi" -i ${path}
+
+  # Ensure that references to the curriculum domain are also relative links
+  sed "s;${CURRICULUM_DOMAIN};../../../../..;gi" -i ${path}
+  sed "s;${BASE_CURRICULUM_DOMAIN};../../../../..;gi" -i ${path}
 
   # All other video source has to be truncated, too
   sed "s;${VIDEO_DOMAIN};../../../../..;gi" -i ${path}
@@ -82,14 +140,22 @@ done
 
 # Videos
 
-VIDEOS="2015/mc/mc_intro.mp4 2015/mc/mc_repeat.mp4 2015/mc/mc_if_statements.mp4"
-
 for url in ${VIDEOS}
 do
   dir=$(dirname "${url}")
   filename=$(basename "${url}")
   mkdir -p ${PREFIX}/${dir}
-  wget ${VIDEO_DOMAIN}/${dir}/${filename} -O ${PREFIX}/${dir}/${filename} -nc
+  mkdir -p videos/${dir}
+  wget ${VIDEO_DOMAIN}/${dir}/${filename} -O videos/${dir}/${filename} -nc --tries=2
+  cp videos/${dir}/${filename} ${PREFIX}/${dir}/${filename}
+done
+
+# Copy over webpacked chunks
+
+for js in `ls ${CODE_DOT_ORG_REPO_PATH}/apps/build/package/js/{1,2,3,4,5,6,7,8,9}*wp*.min.js 2> /dev/null`
+do
+  mkdir -p ${PREFIX}/assets/js
+  cp ${js} ${PREFIX}/assets/js/.
 done
 
 # Add shims
@@ -136,42 +202,62 @@ cp -r static/dashboardapi ${PREFIX}/.
 cp -r static/levels ${PREFIX}/.
 
 # Copy in static content
-
-STATIC="
-blockly/media/skins/craft/music/vignette4-intro.mp3
-blockly/media/skins/craft/music/vignette5-shortpiano.mp3
-blockly/media/skins/craft/music/vignette2-quiet.mp3
-blockly/media/skins/craft/music/vignette3.mp3
-blockly/media/skins/craft/music/vignette7-funky-chirps-short.mp3
-blockly/media/skins/craft/music/vignette1.mp3
-blockly/video-js/video-js.css
-blockly/media/click.mp3
-blockly/media/delete.mp3
-blockly/media/canclosed.png
-blockly/media/canopen.png
-blockly/media/handopen.cur
-shared/images/download_button.png
-blockly/media/1x1.gif
-api/hour/begin_mc.png"
-
 for static in ${STATIC}
 do
   dir=$(dirname "${static}")
   filename=$(basename "${static}")
   mkdir -p ${PREFIX}/${dir}
-  wget ${STUDIO_DOMAIN}/${dir}/${filename} -O ${PREFIX}/${dir}/${filename} -nc || rm ${PREFIX}/${dir}/${filename} && wget ${MAIN_DOMAIN}/${dir}/${filename} -O ${PREFIX}/${dir}/${filename} -nc
+  wget ${STUDIO_DOMAIN}/${dir}/${filename} -O ${PREFIX}/${dir}/${filename} --tries=1 -nc --timeout=20 || rm ${PREFIX}/${dir}/${filename} && wget ${MAIN_DOMAIN}/${dir}/${filename} -O ${PREFIX}/${dir}/${filename} --tries=1 -nc || rm ${PREFIX}/${dir}/${filename} && wget https://studio.code.org/${dir}/${filename} -O ${PREFIX}/${dir}/${filename} --tries=1 -nc --timeout=20 
+done
+
+# Copy in curriculum static content
+for static in ${CURRICULUM_STATIC}
+do
+  dir=$(dirname "${static}")
+  filename=$(basename "${static}")
+  mkdir -p ${PREFIX}/${dir}
+  wget ${CURRICULUM_DOMAIN}/${dir}/${filename} -O ${PREFIX}/${dir}/${filename} --tries=1 -nc
+done
+
+# Remove lingering cookie jar
+rm -f cookies.jar signed-cookies.jar
+
+# Get signed / restricted content
+for static in ${RESTRICTED}
+do
+  dir=$(dirname "${static}")
+  filename=$(basename "${static}")
+  mkdir -p ${PREFIX}/${dir}
+  mkdir -p restricted/${dir}
+
+  if [[ -z "${COOKIES}" ]]; then
+    # Get a local user session
+    wget --keep-session-cookies --save-cookies cookies.jar --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:107.0) Gecko/20100101 Firefox/107.0" --header "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:107.0) Gecko/20100101 Firefox/107.0" --header "Host: studio.code.org" --header "Accept-Language: en-US,en;q=0.5" --header "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8" --header "Pragma: no-cache" --header "Upgrade-Insecure-Requests: 1" --header "DNT: 1" --header "Accept-Encoding: gzip, deflate, br" --header "Cache-Control: no-cache" --header "Connection: keep-alive" https://studio.code.org/s/${COURSE}/lessons/${LESSON}/levels/1
+
+    # Sign the cookies
+    wget --keep-session-cookies --load-cookies cookies.jar --save-cookies signed-cookies.jar https://studio.code.org/dashboardapi/sign_cookies -O ${PREFIX}/dashboardapi/sign_cookies
+
+    COOKIES=signed-cookies.jar
+  fi
+
+  # Acquire the thing
+  wget --load-cookies signed-cookies.jar https://studio.code.org/${dir}/${filename} -O restricted/${dir}/${filename} --header "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:107.0) Gecko/20100101 Firefox/107.0" --tries=1 -nc
+  cp restricted/${dir}/${filename} ${PREFIX}/${dir}/${filename}
 done
 
 # Copy whole directories
-
-PATHS="blockly/media/skins/craft/audio blockly/media/skins/craft/images blockly/media/craft"
-
 for path in ${PATHS}
 do
   dir=$(dirname "${path}")
   mkdir -p ${PREFIX}/${dir}
   cp -r "../code-dot-org/dashboard/public/${path}" ${PREFIX}/${dir}/.
 done
+
+# Perform the 'after' callback
+after
+
+# Remove newly created cookie jar
+rm -f cookies.jar signed-cookies.jar
 
 # Create an index.html to redirect
 echo "<meta http-equiv=\"refresh\" content=\"0; URL=s/${COURSE}/lessons/${LESSON}/levels/1.html\" />" > ${PREFIX}/index.html
@@ -181,9 +267,9 @@ echo
 echo "Creating ./dist/${COURSE}/${COURSE}_${LESSON}.zip ..."
 cd ${PREFIX}
 mkdir -p ../../dist/${COURSE}
-if [ -f ../../dist/${COURSE}/${COURSE_LESSON}.zip ]; then
+if [ -f ../../dist/${COURSE}/${COURSE}_${LESSON}.zip ]; then
   echo "Removing existing zip."
-  rm ../../dist/${COURSE}/${COURSE_LESSON}.zip
+  rm ../../dist/${COURSE}/${COURSE}_${LESSON}.zip
 fi
 zip ../../dist/${COURSE}/${COURSE}_${LESSON}.zip -qr .
 cd - > /dev/null 2> /dev/null

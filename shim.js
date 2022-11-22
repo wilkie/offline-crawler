@@ -38,7 +38,6 @@ if (!window.__offline_replaced) {
           // The header was built... modify the links
           targetNode.querySelectorAll('a').forEach( (link) => {
             let url = link.getAttribute('href');
-            console.log("ok hmm", link, url);
             if (url) {
               if (url.startsWith("//localhost-studio.code.org:3000")) {
                 url = "/" + url.split(':').slice(1).join(':').split('/').slice(1).join('/');

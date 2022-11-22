@@ -33,7 +33,7 @@ offline experience (e.g. sign up button).
 Just run:
 
 ```
-./package.sh
+./package.sh mc_1
 ```
 
 It produces (for minecraft lesson 1):
@@ -43,6 +43,20 @@ It produces (for minecraft lesson 1):
 ```
 
 It can produce other things by editing `COURSE` and `LESSON` environment variables.
+We generalize this by building out separate shell scripts for each module that
+define specific resources each need. See `./modules/mc_1.sh` and such for examples
+and the general boilerplate.
+
+Adding a module via this directory will add that ability to build it. That is,
+adding, say `./modules/foo_1.sh` and setting the `COURSE` and `LESSON` accordingly
+will allow building that module via:
+
+```
+./package.sh foo_1
+```
+
+And seeing, if successful, the zip in `./dist/foo/1/foo_1.zip` and the contents in
+`./build/foo_1/`.
 
 ## Kolibri / Endless OS Modules
 
