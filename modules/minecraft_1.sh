@@ -1,8 +1,8 @@
-# Minecraft Adventure
+# Minecraft Designer
 
-NAME="Minecraft Adventure"
+NAME="Minecraft Designer"
 
-COURSE=mc
+COURSE=minecraft
 LESSON=1
 
 # Other URLs to crawl
@@ -17,8 +17,6 @@ blockly/media/skins/craft/music/vignette2-quiet.mp3
 blockly/media/skins/craft/music/vignette3.mp3
 blockly/media/skins/craft/music/vignette7-funky-chirps-short.mp3
 blockly/media/skins/craft/music/vignette1.mp3
-shared/images/download_button.png
-api/hour/begin_mc.png
 "
 
 # Files to copy from curriculum.code.org
@@ -36,6 +34,5 @@ blockly/media/skins/craft/images
 blockly/media/craft
 "
 
-# Other videos to crawl
 VIDEOS="
 "

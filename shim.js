@@ -2,6 +2,7 @@ if (!window.__offline_replaced) {
   window.__offline_replaced = true;
 
   // Disable sessionStorage
+  /*
   window.__defineGetter__('sessionStorage', function() {
     return {
       getItem: function(key) { return undefined; },
@@ -14,12 +15,13 @@ if (!window.__offline_replaced) {
   window.__defineGetter__('localStorage', function() {
     return {
       getItem: function(key) { if (key in localStorage) { return localStorage[key]; } else { return null; } },
-      setItem: function(key, value) { console.log("setting", key, value); return localStorage[key] = value; },
+      setItem: function(key, value) { return localStorage[key] = value; },
       removeItem: function(key) { delete localStorage[key]; }
     };
   });
+  */
 
-  // Disable cookie
+  // Disable cookies
   document.__defineGetter__('cookie', function() { return '' });
   document.__defineSetter__('cookie', function(v) {});
 
@@ -71,10 +73,34 @@ if (!window.__offline_replaced) {
     let ret = new oldXHR(arguments);
     let oldOpen = ret.open;
     ret.open = function(method, url, async, user, password) {
+      // Deal with the weird proxy stuff via 'media?u='
+      // stuff like: studio.learningequality.org/media?u=https%3A%2F%2Fstudi...
+      let idx = url.indexOf("media?u");
+      if (idx > 0) {
+        idx += 8;
+        url = decodeURIComponent(url.substring(idx));
+      }
+
+      // Now overwrite the code.org urls
+      let domains = [
+        "https://studio.code.org",
+        "https://code.org",
+      ];
+
+      for (let i = 0; i < domains.length; i++) {
+        let domain = domains[i];
+        if (url.startsWith(domain)) {
+          url = url.substring(domain.length);
+          break;
+        }
+      }
+
       if (url[0] === "/") {
         url = "../../../../.." + url;
       }
       arguments[1] = url;
+
+      console.log("seeing [xhr]", url);
       return oldOpen.bind(this)(method, url, async, user, password);
     };
     return ret;
@@ -86,6 +112,7 @@ if (!window.__offline_replaced) {
     if (url[0] === "/") {
       url = "../../../../.." + url;
     }
+    console.log("seeing [fetch]", url);
     return oldFetch(url, options);
   };
 
@@ -95,6 +122,7 @@ if (!window.__offline_replaced) {
     if (name === "xlink:href" && url[0] === "/") {
       url = "../../../../.." + url;
     }
+      console.log("seeing [Element.sANS]", url);
     return oldSANS.bind(this)(namespace, name, url);
   };
   let oldSA = window.Element.prototype.setAttribute;
@@ -102,18 +130,34 @@ if (!window.__offline_replaced) {
     if (name === "src" && url[0] === "/") {
       url = "../../../../.." + url;
     }
+    if (name === "href" && url[0] === "/") {
+      url = "../../../../.." + url;
+    }
+      console.log("seeing [Element.sA]", url);
     return oldSA.bind(this)(name, url);
   };
 
   // For "Image()" functions (like in Phaser)
-  let oldImageSrc = window.Image.prototype.__lookupSetter__('src');
-  window.Image.prototype.__defineSetter__('src', function(url) {
-    if (url[0] === "/") {
-      url = "../../../../.." + url;
-    }
-    // Also allows the image to be used inside unsafe contexts such as, of
-    // course, a webgl texture!
-    this.crossOrigin = "anonymous";
-    oldImageSrc.bind(this)(url);
-  });
+  let types = [
+    window.Image,
+    window.Element,
+    window.HTMLElement,
+    window.HTMLScriptElement,
+    window.HTMLImageElement
+  ];
+
+  for (let i = 0; i < types.length; i++) {
+    let prototype = types[i].prototype;
+    let oldSrc = prototype.__lookupSetter__('src');
+    prototype.__defineSetter__('src', function(url) {
+      if (url[0] === "/") {
+        url = "../../../../.." + url;
+      }
+      // Also allows the image to be used inside unsafe contexts such as, of
+      // course, a webgl texture!
+      console.log("seeing [window.{*Element|Image}.src]", url);
+      this.crossOrigin = "anonymous";
+      oldSrc.bind(this)(url);
+    });
+  }
 }

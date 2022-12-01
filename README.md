@@ -2,6 +2,24 @@
 
 This builds static versions of certain sections of the code.org site.
 
+## Dependencies
+
+This is entirely written as a bash script. So it just requires `bash`, `sed`,
+`grep`, `cut`, and `wget`. All but `wget` are commonly pre-installed into a
+Unix enviroment such as OS X and Linux.
+
+## Basic Usage
+
+```
+./package mc_1
+```
+
+Produces `dist/mc/mc_1.zip`
+
+The module names correspond to the course key and the lesson number.
+
+More specific instructions follow.
+
 ## Packager
 
 Our previous app packager produced Electron based applications by crawling the
@@ -39,7 +57,7 @@ Just run:
 It produces (for minecraft lesson 1):
 
 ```
-./dist/mc/1/mc_1.zip
+./dist/mc/mc_1.zip
 ```
 
 It can produce other things by editing `COURSE` and `LESSON` environment variables.

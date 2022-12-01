@@ -4,33 +4,17 @@ NAME="Dance Party"
 
 COURSE=dance-2019
 LESSON=1
-LEVELS=10
 
 # Other URLs to crawl
 URLS="
-notes/hoc_dance_warmup_2019
-notes/hoc_dance_events_2019
-notes/hoc_dance_measures_2019
-notes/hoc_dance_properties_2019
-notes/hoc_dance_congrats_2019
 "
 
 # Files to copy over (that might not be crawled)
 # The dance songs metadata I got from (after a build):
 # cat build/dance-2019_1/api/v1/sound-library/hoc_song_meta/testManifest.json | python -mjson.tool | grep "id\":" | awk -F ":" '{ gsub (" ", "", $2); gsub ("\"", "", $2); gsub (",", "", $2); print "api/v1/sound-library/hoc_song_meta/" $2 ".json" }'
 STATIC="
-blockly/video-js/video-js.css
-blockly/media/click.mp3
-blockly/media/trash.png
-blockly/media/delete.mp3
-blockly/media/canclosed.png
-blockly/media/canopen.png
-blockly/media/handopen.cur
-shared/images/download_button.png
-blockly/media/1x1.gif
-blockly/media/dance/icons.png
-api/hour/begin_dance-2019.png
-blockly/media/common_images/shared-sprites-26x26.png
+"
+FOO="
 api/v1/sound-library/hoc_song_meta/songManifest2022.json
 api/v1/sound-library/hoc_song_meta/introtoshamstep_47SOUL.json
 api/v1/sound-library/hoc_song_meta/isawthesign_aceofbase.json
@@ -110,6 +94,8 @@ api/v1/sound-library/hoc_song_meta/wenospeakamericano_yolandabecool.json
 # cat build/dance-2019_1/images/sprites/dance_20191106/characters.json | python -mjson.tool | grep spritesheet | awk -F ":" '{ gsub (" ", "", $2); gsub ("\"", "", $2); gsub (",", "", $2); print "images/sprites/dance_20191106/" $2 }'
 # And then removed duplicates
 CURRICULUM_STATIC="
+"
+FOO="
 images/sprites/dance_20191106/higher-power-sheet.png
 images/DancePartyLoading.gif
 images/sprites/dance_20191106/characters.json
@@ -247,11 +233,6 @@ blockly/media/skins/dance
 "
 
 VIDEOS="
-levelbuilder/1-danceparty-warmup-mp4-mp4.mp4
-levelbuilder/2-danceparty-events-mp4-mp4.mp4
-levelbuilder/3-danceparty-measures-mp4-mp4.mp4
-levelbuilder/4-danceparty-properties-mp4-mp4.mp4
-levelbuilder/5-danceparty-partyon-mp4-mp4.mp4
 "
 
 after() {
