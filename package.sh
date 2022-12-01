@@ -10,8 +10,15 @@
 
 echo "Starting crawler..."
 
+ROOT_PATH=$(realpath $(dirname $0))
+cd ${ROOT_PATH}
+
 if [[ -z "${MODULE}" ]]; then
   MODULE=$1
+fi
+
+if [[ "${MODULE}" == *".sh" ]]; then
+  MODULE=${MODULE::-3}
 fi
 
 if [ -f ./modules/${MODULE}.sh ]; then
@@ -607,10 +614,10 @@ echo "Creating index.html to redirect to the first level."
 echo "[CREATE] index.html"
 echo "<meta http-equiv=\"refresh\" content=\"0; URL=s/${COURSE}/lessons/${LESSON}/levels/1.html\" />" > ${PREFIX}/index.html
 echo "[CREATE] sandbox.html"
-echo "<html><head><style>body,html{padding:0;margin:0;width:100%;height:100;}iframe{position:absolute;left:0;right:0;top:0;bottom:0;}</style></head><body><iframe src=\"index.html\" sandbox=\"allow-scripts allow-same-origin\"></body></html>" > ${PREFIX}/sandbox.html
+echo "<html><head><style>body,html{padding:0;margin:0;width:100%;height:100%;}iframe{position:absolute;left:0;right:0;top:0;bottom:0;width:100%;height:100%;}</style></head><body><iframe src=\"index.html\" sandbox=\"allow-scripts allow-same-origin\"></body></html>" > ${PREFIX}/sandbox.html
 echo "[CREATE] kolibri.html"
 # Kolibri uses these sandbox options
-echo "<html><head><style>body,html{padding:0;margin:0;width:100%;height:100;}iframe{position:absolute;left:0;right:0;top:0;bottom:0;}</style></head><body><iframe src=\"index.html\" sandbox=\"allow-scripts allow-same-origin\"></body></html>" > ${PREFIX}/kolibri.html
+echo "<html><head><style>body,html{padding:0;margin:0;width:100%;height:100%;}iframe{position:absolute;left:0;right:0;top:0;bottom:0;width:100%;height:100%;}</style></head><body><iframe src=\"index.html\" sandbox=\"allow-scripts allow-same-origin\"></body></html>" > ${PREFIX}/kolibri.html
 
 # Zip it up
 echo

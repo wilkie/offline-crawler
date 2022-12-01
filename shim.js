@@ -2,7 +2,6 @@ if (!window.__offline_replaced) {
   window.__offline_replaced = true;
 
   // Disable sessionStorage
-  /*
   window.__defineGetter__('sessionStorage', function() {
     return {
       getItem: function(key) { return undefined; },
@@ -19,7 +18,6 @@ if (!window.__offline_replaced) {
       removeItem: function(key) { delete localStorage[key]; }
     };
   });
-  */
 
   // Disable cookies
   document.__defineGetter__('cookie', function() { return '' });
@@ -100,7 +98,6 @@ if (!window.__offline_replaced) {
       }
       arguments[1] = url;
 
-      console.log("seeing [xhr]", url);
       return oldOpen.bind(this)(method, url, async, user, password);
     };
     return ret;
@@ -112,7 +109,6 @@ if (!window.__offline_replaced) {
     if (url[0] === "/") {
       url = "../../../../.." + url;
     }
-    console.log("seeing [fetch]", url);
     return oldFetch(url, options);
   };
 
@@ -122,7 +118,6 @@ if (!window.__offline_replaced) {
     if (name === "xlink:href" && url[0] === "/") {
       url = "../../../../.." + url;
     }
-      console.log("seeing [Element.sANS]", url);
     return oldSANS.bind(this)(namespace, name, url);
   };
   let oldSA = window.Element.prototype.setAttribute;
@@ -133,7 +128,6 @@ if (!window.__offline_replaced) {
     if (name === "href" && url[0] === "/") {
       url = "../../../../.." + url;
     }
-      console.log("seeing [Element.sA]", url);
     return oldSA.bind(this)(name, url);
   };
 
@@ -155,7 +149,6 @@ if (!window.__offline_replaced) {
       }
       // Also allows the image to be used inside unsafe contexts such as, of
       // course, a webgl texture!
-      console.log("seeing [window.{*Element|Image}.src]", url);
       this.crossOrigin = "anonymous";
       oldSrc.bind(this)(url);
     });
