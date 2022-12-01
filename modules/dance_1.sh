@@ -13,8 +13,6 @@ URLS="
 # The dance songs metadata I got from (after a build):
 # cat build/dance-2019_1/api/v1/sound-library/hoc_song_meta/testManifest.json | python -mjson.tool | grep "id\":" | awk -F ":" '{ gsub (" ", "", $2); gsub ("\"", "", $2); gsub (",", "", $2); print "api/v1/sound-library/hoc_song_meta/" $2 ".json" }'
 STATIC="
-"
-FOO="
 api/v1/sound-library/hoc_song_meta/songManifest2022.json
 api/v1/sound-library/hoc_song_meta/introtoshamstep_47SOUL.json
 api/v1/sound-library/hoc_song_meta/isawthesign_aceofbase.json
@@ -94,8 +92,6 @@ api/v1/sound-library/hoc_song_meta/wenospeakamericano_yolandabecool.json
 # cat build/dance-2019_1/images/sprites/dance_20191106/characters.json | python -mjson.tool | grep spritesheet | awk -F ":" '{ gsub (" ", "", $2); gsub ("\"", "", $2); gsub (",", "", $2); print "images/sprites/dance_20191106/" $2 }'
 # And then removed duplicates
 CURRICULUM_STATIC="
-"
-FOO="
 images/sprites/dance_20191106/higher-power-sheet.png
 images/DancePartyLoading.gif
 images/sprites/dance_20191106/characters.json
@@ -158,6 +154,8 @@ restricted/isawthesign_aceofbase.mp3
 restricted/takeonme_aha.mp3
 restricted/showdaspoderosas_anitta.mp3
 "
+
+# Uncomment to pull down ALL the music
 BLAH="
 restricted/jinglebells_hollywoodchristmas.mp3
 restricted/notearslefttocry_arianagrande.mp3
