@@ -49,12 +49,14 @@ STUDIO_DOMAIN=http://localhost-studio.code.org:3000
 MAIN_DOMAIN=http://localhost.code.org:3000
 CURRICULUM_DOMAIN=https://curriculum.code.org
 VIDEO_DOMAIN=http://videos.code.org
+TTS_DOMAIN=https://tts.code.org
 
 # Some links are in the form `//localhost-studio.code.org:3000`, etc
 BASE_STUDIO_DOMAIN=${STUDIO_DOMAIN:5}
 BASE_MAIN_DOMAIN=${MAIN_DOMAIN:5}
 BASE_CURRICULUM_DOMAIN=${CURRICULUM_DOMAIN:6}
 BASE_VIDEO_DOMAIN=${VIDEO_DOMAIN:5}
+BASE_TTS_DOMAIN=${VIDEO_DOMAIN:6}
 
 mkdir -p build
 PREFIX=build/${COURSE}_${LESSON}
@@ -384,6 +386,10 @@ do
   # All other video source has to be truncated, too
   sed "s;${VIDEO_DOMAIN};../../../../..;gi" -i ${path}
   sed "s;${BASE_VIDEO_DOMAIN};../../../../..;gi" -i ${path}
+
+  # All tts content should also redirect
+  sed "s;${TTS_DOMAIN};../../../../..;gi" -i ${path}
+  sed "s;${BASE_TTS_DOMAIN};../../../../..;gi" -i ${path}
 
   # For some reason, these don't all get converted either
   sed "s;${STUDIO_DOMAIN};../../../../..;gi" -i ${path}
