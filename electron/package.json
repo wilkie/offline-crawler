@@ -1,0 +1,10 @@
+{
+  "name": "code-dot-org-electron-app",
+  "version": "1.0.0",
+  "description": "Electron version of a code.org module.",
+  "main": "main.js",
+  "author": "code.org",
+  "dependencies": {
+    "custom-electron-titlebar": "^3.2.6"
+  }
+}
