@@ -1,29 +1,78 @@
 if (!window.__offline_replaced) {
   window.__offline_replaced = true;
 
+  try {
+      window.__localStorage = window.localStorage;
+      window.__sessionStorage = window.sessionStorage;
+      window.__indexedDB = window.indexedDB;
+  }
+  catch {
+  }
+
   // Disable sessionStorage
+  let sessionStorage = {};
   window.__defineGetter__('sessionStorage', function() {
+    if (window.__sessionStorage) {
+      return window.__sessionStorage;
+    }
     return {
-      getItem: function(key) { return undefined; },
-      setItem: function(key, value) { return undefined; }
+      getItem: function(key) {
+        console.log("[persist] sessionStorage.get", key);
+        if (key in sessionStorage) {
+          return sessionStorage[key];
+        }
+        else
+        {
+          return null;
+        }
+      },
+      setItem: function(key, value) {
+        console.log("[persist] sessionStorage.set", key, value);
+        return sessionStorage[key] = value;
+      },
+      removeItem: function(key) {
+        delete sessionStorage[key];
+      }
     };
   });
 
   // Disable localStorage
   let localStorage = {};
   window.__defineGetter__('localStorage', function() {
+    if (window.__localStorage) {
+      return window.__localStorage;
+    }
     return {
-      getItem: function(key) { if (key in localStorage) { return localStorage[key]; } else { return null; } },
-      setItem: function(key, value) { return localStorage[key] = value; },
-      removeItem: function(key) { delete localStorage[key]; }
+      getItem: function(key) {
+        console.log("[persist] localStorage.get", key);
+        if (key in localStorage) {
+          return localStorage[key];
+        }
+        else
+        {
+          return null;
+        }
+      },
+      setItem: function(key, value) {
+        console.log("[persist] localStorage.set", key, value);
+        return localStorage[key] = value;
+      },
+      removeItem: function(key) {
+        delete localStorage[key];
+      }
     };
   });
 
   // Disable cookies
-  document.__defineGetter__('cookie', function() { return '' });
-  document.__defineSetter__('cookie', function(v) {});
+  document.__defineGetter__('cookie', function() { console.log("[persist] cookie.get"); return '' });
+  document.__defineSetter__('cookie', function(v) { console.log("[persist] cookie.set", v); });
 
   window.addEventListener('load', () => {
+    var userAgent = navigator.userAgent.toLowerCase();
+    if (userAgent.indexOf(' electron/') > -1) {
+      // This is an electron app.
+    }
+
     // Make sure we re-write the header links
     // Select the node that will be observed for mutations
     const targetNode = document.querySelector('.header_level');

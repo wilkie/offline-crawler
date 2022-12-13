@@ -29,6 +29,7 @@ RESTRICTED="
 
 # Whole directories to copy over
 PATHS="
+blockly/media/spritelab
 "
 
 VIDEOS="

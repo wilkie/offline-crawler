@@ -1,11 +1,9 @@
 /* These are overrides for the offline apps */
 
-/* Turn off TTS (does not function in offline) */
-/*
+/* Turn off "immersive reader" (does not function in offline) */
 .immersive-reader-button {
   display: none !important;
 }
-*/
 
 /* Hide the signup/support/help buttons as they don't function in offline) */
 .header_right {

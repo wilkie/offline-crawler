@@ -49,6 +49,7 @@ STUDIO_DOMAIN=http://localhost-studio.code.org:3000
 MAIN_DOMAIN=http://localhost.code.org:3000
 CURRICULUM_DOMAIN=https://curriculum.code.org
 VIDEO_DOMAIN=http://videos.code.org
+VIDEO_SSL_DOMAIN=https://videos.code.org
 TTS_DOMAIN=https://tts.code.org
 
 # Some links are in the form `//localhost-studio.code.org:3000`, etc
@@ -385,6 +386,7 @@ do
 
   # All other video source has to be truncated, too
   sed "s;${VIDEO_DOMAIN};../../../../..;gi" -i ${path}
+  sed "s;${VIDEO_SSL_DOMAIN};../../../../..;gi" -i ${path}
   sed "s;${BASE_VIDEO_DOMAIN};../../../../..;gi" -i ${path}
 
   # All tts content should also redirect
