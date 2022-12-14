@@ -147,8 +147,27 @@ if (!window.__offline_replaced) {
       }
       arguments[1] = url;
 
+      if (url.startsWith("../../../../../api/")) {
+        let path = url.substring("../../../../../api/".length);
+        console.log("[api]", path);
+        if (path.startsWith("user_app_options")) {
+          ret.responseType = "json";
+          ret.response = {
+            signedIn: false,
+            channel: "blah",
+            reduceChannelUpdates: false
+          };
+          ret.responseText = JSON.stringify(ret.response);
+          let ev = new ProgressEvent("blah");
+          console.log("[api] user_app_options", ret.response);
+          ret.onload(ev);
+          return;
+        }
+      }
+
       return oldOpen.bind(this)(method, url, async, user, password);
     };
+
     return ret;
   };
 
