@@ -347,6 +347,13 @@ do
     done
   fi
 
+  # Get blockly assets that are hard-coded
+  ASSETS=`grep ${js} -ohe "src:\s*\"/blockly/[^\"]*" | sed -u 's;^src:\s*"/;;g'`
+  for url in ${ASSETS}
+  do
+    STATIC="${STATIC} ${url}"
+  done
+
   # Everything EXCEPT the really large sound-library should be included
   ASSETS=`grep ${js} -ohe "\"\(https://studio.code.org\)\?/api/v1/[^s][^o][^u][^\"]\+/\?\"[^.]" | sed -u 's;\"\(https://studio.code.org\)\?/\?\([^.]$\)\?;;g'`
   for url in ${ASSETS}
