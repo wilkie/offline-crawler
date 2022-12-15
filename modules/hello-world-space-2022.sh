@@ -12,11 +12,13 @@ URLS="
 # Files to copy over (that might not be crawled)
 STATIC="
 api/v1/animation-library/default-spritelab-metadata/production
+api/v1/animation-library/manifest/spritelab/en_us
 "
 
 # Files to then parse for links
 PARSE="
 api/v1/animation-library/default-spritelab-metadata/production
+api/v1/animation-library/manifest/spritelab/en_us
 "
 
 # Files to copy from curriculum.code.org

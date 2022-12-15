@@ -9,16 +9,136 @@ if (!window.__offline_replaced) {
   catch {
   }
 
+  function callApi(method, path, data) {
+    let args = path.split('/');
+    let call = args[0];
+    let response = null;
+
+    try {
+      console.log("[api]", path);
+      if (call === "user_progress") {
+        response = {
+          signedIn: false
+        };
+      }
+      else if (call === "v1") {
+        call = args[1];
+        args = args.slice(1);
+
+        if (call === "users" && args[1] === "current") {
+          response = {
+            is_signed_in: false
+          };
+        }
+      }
+      else if (call === "example_solutions") {
+        response = [];
+      }
+      else if (call === "hidden_lessons") {
+        response = [];
+      }
+      else if (call === "user_app_options") {
+        response = {
+          signedIn: false,
+          channel: "blah",
+          reduceChannelUpdates: false
+        };
+      }
+      else if (call === "channels") {
+        // Get channel metadata
+
+        // Maintain channel id
+        window.__channel = args[1];
+        let updated = window.localStorage.getItem("__channel_" + window.__channel + "_updated");
+        let thumbnail = window.localStorage.getItem("__channel_" + window.__channel + "_thumbnail");
+        let projectType = window.localStorage.getItem("__channel_" + window.__channel + "_projectType");
+        let level = window.localStorage.getItem("__channel_" + window.__channel + "_level");
+
+        // Default response (on initial load)
+        let date = (new Date()).toISOString();
+        response = {
+          "hidden":true,
+          "createdAt": date,
+          "updatedAt": date,
+          "id": args[1],
+          "isOwner": true,
+          "publishedAt": null,
+          "projectType": null
+        }
+
+        // If we have written to it before, say it is in S3
+        if (updated) {
+          response.migratedToS3 = true;
+        }
+
+        if (thumbnail) {
+          response.thumbnailUrl = thumbnail;
+        }
+
+        if (projectType) {
+          response.projectType = projectType;
+        }
+
+        if (level) {
+          response.level = level;
+        }
+      }
+      else if (call === "sources" || call === "files") {
+        // Get saved progress
+        let filename = args.slice(1).join("/");
+
+        if (method === "GET") {
+          console.log("[api] reading file at path:", filename);
+          response = window.localStorage.getItem(call + "/" + filename);
+        }
+        else {
+          console.log("[api] writing file at path:", filename, data);
+          window.localStorage.setItem(call + "/" + filename, data);
+
+          // Remove the channel name
+          let itemPath = filename.split('/').slice(1).join('/');
+
+          // Detect if we are writing a thumbnail
+          let category = "application";
+          if (data.arrayBuffer) {
+            category = "image";
+            data = "";
+            window.localStorage.setItem("__channel_" + window.__channel + "_thumnail", "/v3/" + path);
+          }
+
+          // Add a version
+
+          // Update channel
+          window.localStorage.setItem("__channel_" + window.__channel + "_updated", "true");
+
+          // Report the version
+          response = {
+            filename: itemPath,
+            category: category,
+            size: data.byteLength || data.length,
+            versionId: "asdf",
+            timestamp: (new Date()).toISOString()
+          };
+        }
+      }
+    }
+    catch(e) {
+      console.error("[api]" + e);
+    }
+
+    return response;
+  }
+
   // Disable sessionStorage
   let sessionStorage = {};
   window.__defineGetter__('sessionStorage', function() {
-    if (window.__sessionStorage) {
-      return window.__sessionStorage;
-    }
     return {
       getItem: function(key) {
         console.log("[persist] sessionStorage.get", key);
-        if (key in sessionStorage) {
+        if (window.__sessionStorage) {
+          return window.__sessionStorage.getItem(key);
+        }
+        else if (key in sessionStorage) {
           return sessionStorage[key];
         }
         else
@@ -28,9 +148,15 @@ if (!window.__offline_replaced) {
       },
       setItem: function(key, value) {
         console.log("[persist] sessionStorage.set", key, value);
+        if (window.__sessionStorage) {
+          return window.__sessionStorage.setItem(key, value);
+        }
         return sessionStorage[key] = value;
       },
       removeItem: function(key) {
+        if (window.__sessionStorage) {
+          return window.__sessionStorage.removeItem(key);
+        }
         delete sessionStorage[key];
       }
     };
@@ -39,13 +165,13 @@ if (!window.__offline_replaced) {
   // Disable localStorage
   let localStorage = {};
   window.__defineGetter__('localStorage', function() {
-    if (window.__localStorage) {
-      return window.__localStorage;
-    }
     return {
       getItem: function(key) {
         console.log("[persist] localStorage.get", key);
-        if (key in localStorage) {
+        if (window.__localStorage) {
+          return window.__localStorage.getItem(key);
+        }
+        else if (key in localStorage) {
           return localStorage[key];
         }
         else
@@ -55,9 +181,15 @@ if (!window.__offline_replaced) {
       },
       setItem: function(key, value) {
         console.log("[persist] localStorage.set", key, value);
+        if (window.__localStorage) {
+          return window.__localStorage.setItem(key, value);
+        }
         return localStorage[key] = value;
       },
       removeItem: function(key) {
+        if (window.__localStorage) {
+          return window.__localStorage.removeItem(key);
+        }
         delete localStorage[key];
       }
     };
@@ -147,23 +279,84 @@ if (!window.__offline_replaced) {
       }
       arguments[1] = url;
 
-      if (url.startsWith("../../../../../api/")) {
-        let path = url.substring("../../../../../api/".length);
-        console.log("[api]", path);
-        if (path.startsWith("user_app_options")) {
-          ret.responseType = "json";
-          ret.response = {
-            signedIn: false,
-            channel: "blah",
-            reduceChannelUpdates: false
-          };
-          ret.responseText = JSON.stringify(ret.response);
-          let ev = new ProgressEvent("blah");
-          console.log("[api] user_app_options", ret.response);
-          ret.onload(ev);
-          return;
+      let oldSend = ret.send;
+      ret.send = function(data) {
+        let response = null;
+        let path = url;
+
+        if (url.startsWith("../../../../../api/")) {
+          path = url.substring("../../../../../api/".length);
+          response = callApi(method, path, data);
         }
-      }
+
+        if (url.startsWith("../../../../../v3/")) {
+          path = url.substring("../../../../../v3/".length);
+          response = callApi(method, path, data);
+        }
+
+        try {
+          if (response) {
+            let headers = {
+              "content-type": "application/json"
+            };
+            let rHeaders = {};
+            ret.setRequestHeader = function(header, value) {
+              rHeaders[header] = value;
+            };
+            ret.getResponseHeader = function(header) {
+              header = header.toLowerCase();
+              return headers[header];
+            };
+            ret.getAllResponseHeaders = function() {
+              let headerString = "";
+              for (const header of Object.keys(headers)) {
+                let value = ret.getResponseHeader(header);
+                headerString = headerString + header + ": " + value + "\r\n";
+              }
+              return headerString;
+            };
+            ret.__defineGetter__('response', function() {
+              return response;
+            });
+            ret.__defineGetter__('status', function() {
+              if (response === 404) {
+                return 404;
+              }
+              return 200;
+            });
+            ret.__defineGetter__('statusText', function() {
+              if (response === 404) {
+                return "Not found";
+              }
+              return "OK";
+            });
+            ret.__defineGetter__('readyState', function() {
+              return 4;
+            });
+            let text = JSON.stringify(response);
+            ret.__defineGetter__('responseText', function() {
+              return text;
+            });
+
+            console.log("[api]", path.split('/')[0], ret.response);
+
+            let ev = new ProgressEvent("load");
+            ev.total = text.length;
+            ev.loaded = ev.total;
+            ev.lengthComputable = true;
+            let rscev = new Event("readystatechange");
+
+            ret.dispatchEvent(ev);
+            ret.dispatchEvent(rscev);
+            return;
+          }
+        }
+        catch (e) {
+          console.error("[api]" + e);
+        }
+
+        return oldSend.bind(this)(arguments);
+      };
 
       return oldOpen.bind(this)(method, url, async, user, password);
     };

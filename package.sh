@@ -634,6 +634,9 @@ echo "[CREATE] kolibri.html"
 # Kolibri uses these sandbox options
 echo "<html><head><style>body,html{padding:0;margin:0;width:100%;height:100%;}iframe{position:absolute;left:0;right:0;top:0;bottom:0;width:100%;height:100%;}</style></head><body><iframe src=\"index.html\" sandbox=\"allow-scripts allow-same-origin\"></body></html>" > ${PREFIX}/kolibri.html
 
+# Add some of the extra silly things
+echo "[]" > ${PREFIX}/s/${COURSE}/hidden_lessons
+
 # Zip it up
 echo
 echo "Creating ./dist/${COURSE}/${COURSE}_${LESSON}.zip ..."
