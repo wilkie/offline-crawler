@@ -51,24 +51,24 @@ if [ ! -d "../${PREFIX}" ]; then
   exit
 fi
 
-mkdir -p builds/windows
-cd builds/windows
-unzip -u ../../electron*win32-x64.zip
+mkdir -p builds/windows/${COURSE}_${LESSON}
+cd builds/windows/${COURSE}_${LESSON}
+unzip -u ../../../electron*win32-x64.zip
 mv electron.exe ${COURSE}_${LESSON}.exe
 mkdir -p resources/app/public/js
-cp -r ../../../${PREFIX}/* resources/app/.
-cp -r ../../node_modules resources/app/.
-cp ../../require.js resources/app/.
-cp ../../main.js resources/app/.
-cp ../../package.json resources/app/.
-cd ../..
+cp -r ../../../../${PREFIX}/* resources/app/.
+cp -r ../../../node_modules resources/app/.
+cp ../../../require.js resources/app/.
+cp ../../../main.js resources/app/.
+cp ../../../package.json resources/app/.
+cd ../../..
 
 echo ""
 echo "Packaging"
 echo "========="
 
 mkdir -p ../dist/releases
-cd builds/windows
+cd builds/windows/${COURSE}_${LESSON}
 
-rm -rf ../../../dist/releases/${COURSE}_${LESSON}-win32-x64.zip
-zip -yr ../../../dist/releases/${COURSE}_${LESSON}-win32-x64.zip *
+rm -rf ../../../../dist/releases/${COURSE}_${LESSON}-win32-x64.zip
+zip -yr ../../../../dist/releases/${COURSE}_${LESSON}-win32-x64.zip *
