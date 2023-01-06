@@ -114,7 +114,7 @@ in all environments and it is unclear which our apps will appear in. Therefore,
 the `shims/shim.js` file is pushed to the top of each base JavaScript file for our
 apps that shim them ourselves. Without local storage APIs, progress cannot be
 saved directly in the browser itself. (See information about the shims and the
-mock APIs in [shims/README.md](shims).
+mock APIs in [`shims/README.md`](shims).
 
 At any rate, the packages saved in `dist` are zip files. Kolibri HTML5 apps are
 essentially metadata wrapped around a provided zip file containing at least an
