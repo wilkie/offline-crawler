@@ -149,6 +149,18 @@ done
 echo ""
 echo "Gathering assets from levels..."
 
+# wget occasionally trips up getting script tags in the body, too, for some reason
+path="${PREFIX}/base.html"
+ASSETS=`grep ${path} -e "<[sS][cC][rR][iI][pP][tT].\+[sS][rR][cC]\s*=\s*\"/" | grep -ohe "[sS][rR][cC]\s*=\s*\"[^\"]\+" | sed -u "s;[sS][rR][cC]\s*=\s*\"/;;"`
+for url in ${ASSETS}
+do
+  dir=$(dirname "${url}")
+  filename=$(basename "${url}")
+
+  mkdir -p ${PREFIX}/${dir}
+  download "--reject-regex=\"[.]dmg$|[.]exe$|[.]mp4$\" --exclude-domains=videos.code.org -nc -O ${PREFIX}/${dir}/${filename}" ${STUDIO_DOMAIN}/${url} "${PREFIX}/wget-assets.log"
+done
+
 for (( i=1; i<=${LEVELS}; i++ ))
 do
   path="${PREFIX}/s/${COURSE}/lessons/${LESSON}/levels/${i}.html"
@@ -373,6 +385,14 @@ do
   done
 done
 
+# Detect usage of the Ace Editor and pull those assets as well
+# This is true if blockly/js/ace.js is present in ASSETS
+path="${PREFIX}/base.html"
+if grep "${path}" -ohe "blockly/js/ace" 2> /dev/null > /dev/null; then
+  echo "[DETECTED] Ace Editor"
+  PATHS="${PATHS} blockly/js/ace"
+fi
+
 echo ""
 echo "Fixing links in pages..."
 
@@ -438,8 +458,8 @@ for js in ${DEST}
 do
   path=`echo ${PREFIX}/${js} 2> /dev/null`
   if [ -f ${path} ]; then
-    echo "[PREPEND] shim.js -> ${path}"
-    cat shim.js ${PREFIX}/${js} > ${PREFIX}/${js}.new
+    echo "[PREPEND] shims/shim.js -> ${path}"
+    cat shims/shim.js ${PREFIX}/${js} > ${PREFIX}/${js}.new
     mv ${PREFIX}/${js}.new ${PREFIX}/${js}
   fi
 done
@@ -450,8 +470,8 @@ for css in ${DEST}
 do
   path=`echo ${PREFIX}/${css} 2> /dev/null`
   if [ -f ${path} ]; then
-    echo "[PREPEND] shim.css -> ${path}"
-    cat shim.css ${PREFIX}/${css} > ${PREFIX}/${css}.new
+    echo "[PREPEND] shims/shim.css -> ${path}"
+    cat shims/shim.css ${PREFIX}/${css} > ${PREFIX}/${css}.new
     mv ${PREFIX}/${css}.new ${PREFIX}/${css}
   fi
 done
