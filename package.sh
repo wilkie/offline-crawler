@@ -82,6 +82,13 @@ download "-O ${PREFIX}/base.html -nc" "${STUDIO_DOMAIN}/s/${COURSE}/lessons/${LE
 LEVELS=`grep ${PREFIX}/base.html -ohe "levels/[0-9]\+\"" | sed -u "s;levels/;;" | sed -u "s;\";;" | sort -n | tail -n1`
 LEVELS="${LEVELS/$'\n'/}"
 
+# If we cannot find it via 'levels/{num}' paths, try to find it using JSON information
+# via "levels":..."position":{num}
+if [[ -z "${LEVELS/$'\n'/}" ]]; then
+  LEVELS=`grep ${PREFIX}/base.html -ohe "levels\":.*\"position\":[0-9]\+" | sed -u "s;levels\":.*\"position\":;;" | sort -n | tail -n1`
+  LEVELS="${LEVELS/$'\n'/}"
+fi
+
 if [[ -z "${LEVELS/$'\n'/}" ]]; then
   echo "Error: Cannot determine the number of levels."
   exit 1
@@ -112,6 +119,13 @@ do
     note=`grep ${path} -ohe "data-key\s*=\s*['\"][^'\"]\+['\"]" | cut -d '"' -f2`
     echo "[FOUND] notes/${note}"
     URLS="${URLS} notes/${note}"
+  fi
+
+  video=`grep ${path} -ohe "href\s*=\s*['\"][^'\"]\+['\"]" | cut -d '"' -f2 | sed -u "s;${VIDEO_DOMAIN}/;;" | sed -u "s;https://videos.code.org/;;"`
+  if [[ ! -z "${video/$'\n'/}" ]]; then
+    echo "[FOUND] ${video}"
+    VIDEOS="${VIDEOS} ${video}"
+    LOCAL_NOTES=1
   fi
 done
 
@@ -250,13 +264,16 @@ done
 # Fix-ups
 # video transcripts reference image assets relative to itself...
 # we must move this to be relative to the level
-if [ -d ${PREFIX}/assets/notes ]; then
-  echo ""
-  echo "Fixing video transcripts..."
 
-  echo "[MOVE] ./assets/notes -> ./s/${COURSE}/lessons/${LESSON}/assets/."
-  mkdir -p ${PREFIX}/s/${COURSE}/lessons/${LESSON}/assets
-  mv ${PREFIX}/assets/notes ${PREFIX}/s/${COURSE}/lessons/${LESSON}/assets/.
+if [[ -z "${LOCAL_NOTES}" ]]; then
+  if [ -d ${PREFIX}/assets/notes ]; then
+    echo ""
+    echo "Fixing video transcripts..."
+
+    echo "[MOVE] ./assets/notes -> ./s/${COURSE}/lessons/${LESSON}/assets/."
+    mkdir -p ${PREFIX}/s/${COURSE}/lessons/${LESSON}/assets
+    mv ${PREFIX}/assets/notes ${PREFIX}/s/${COURSE}/lessons/${LESSON}/assets/.
+  fi
 fi
 
 # Copy over webpacked chunks
@@ -272,6 +289,17 @@ do
   mkdir -p ${PREFIX}/assets/js
   echo "[COPYING] ${PREFIX}/assets/js/${filename}"
   cp ${js} ${PREFIX}/assets/js/.
+done
+
+# And any strange placeholder graphics built in our apps chain
+for img in `ls ${CODE_DOT_ORG_REPO_PATH}/apps/build/package/js/*.{jpg,png} 2> /dev/null`
+do
+  dir=$(dirname "${img}")
+  filename=$(basename "${img}")
+
+  mkdir -p ${PREFIX}/assets/js
+  echo "[COPYING] ${PREFIX}/assets/js/${filename}"
+  cp ${img} ${PREFIX}/assets/js/.
 done
 
 # Individual fix-ups
@@ -387,11 +415,16 @@ done
 
 # Detect usage of the Ace Editor and pull those assets as well
 # This is true if blockly/js/ace.js is present in ASSETS
-path="${PREFIX}/base.html"
-if grep "${path}" -ohe "blockly/js/ace" 2> /dev/null > /dev/null; then
-  echo "[DETECTED] Ace Editor"
-  PATHS="${PATHS} blockly/js/ace"
-fi
+ACE_FOUND=0
+for (( i=1; i<=${LEVELS} && ${ACE_FOUND}==0; i++ ))
+do
+  path="${PREFIX}/s/${COURSE}/lessons/${LESSON}/levels/${i}.html"
+  if grep "${path}" -ohe "blockly/js/ace" 2> /dev/null > /dev/null; then
+    echo "[DETECTED] Ace Editor"
+    PATHS="${PATHS} blockly/js/ace"
+    ACE_FOUND=1
+  fi
+done
 
 echo ""
 echo "Fixing links in pages..."
