@@ -1,5 +1,20 @@
 /* These are overrides for the offline apps */
 
+/* Turn off navigation header */
+.headerlinks {
+  display: none !important;
+}
+
+/* Turn off some footer links (except privacy and tos) */
+.navbar-static-top.footer a:not([href$="privacy"]) + .dim, .navbar-static-top.footer .dim + a:not([href$="tos"]) {
+  display: none !important;
+}
+
+/* Turn off course Continue/Support buttons */
+.unit-overview-top-row > div:first-child {
+  display: none !important;
+}
+
 /* Turn off "immersive reader" (does not function in offline) */
 .immersive-reader-button {
   display: none !important;

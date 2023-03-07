@@ -35,7 +35,7 @@ else
   exit 1
 fi
 
-PREFIX=build/${COURSE}_${LESSON}
+PREFIX=build/${COURSE}
 
 # Add shims
 
@@ -49,7 +49,19 @@ do
   path=`echo ${PREFIX}/${js} 2> /dev/null`
   if [ -f ${path} ]; then
     echo "[PREPEND] shim.js -> ${path}"
-    cat shim.js ${PREFIX}/${js} > ${PREFIX}/${js}.new
+    cat shims/shim.js ${PREFIX}/${js} > ${PREFIX}/${js}.new
     mv ${PREFIX}/${js}.new ${PREFIX}/${js}
+  fi
+done
+
+DEST=`ls ${PREFIX}/assets/css/*.css`
+
+for css in ${DEST}
+do
+  path=`echo ${css} 2> /dev/null`
+  if [ -f ${path} ]; then
+    echo "[PREPEND] \`shims/shim.css\` -> \`${path}\`"
+    cat shims/shim.css ${css} > ${css}.new
+    mv ${css}.new ${css}
   fi
 done

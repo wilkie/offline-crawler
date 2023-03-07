@@ -5,3 +5,7 @@ restricted/
 electron/*.zip
 electron/builds/
 electron/node_modules/
+shared/
+account.sh
+*.jar
+sessions/

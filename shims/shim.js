@@ -264,42 +264,80 @@ if (!window.__offline_replaced) {
     // Make sure we re-write the header links
     // Select the node that will be observed for mutations
     const targetNode = document.querySelector('.header_level');
+    if (targetNode) {
+      // Options for the observer (which mutations to observe)
+      const config = { attributes: true, childList: true, subtree: true };
 
-    // Options for the observer (which mutations to observe)
-    const config = { attributes: true, childList: true, subtree: true };
-
-    // Callback function to execute when mutations are observed
-    const callback = (mutationList, observer) => {
-      for (const mutation of mutationList) {
-        if (mutation.type === 'childList') {
-          // The header was built... modify the links
-          targetNode.querySelectorAll('a').forEach( (link) => {
-            let url = link.getAttribute('href');
-            if (url) {
-              if (url.startsWith("//localhost-studio.code.org:3000")) {
-                url = "/" + url.split(':').slice(1).join(':').split('/').slice(1).join('/');
+      // Callback function to execute when mutations are observed
+      const callback = (mutationList, observer) => {
+        for (const mutation of mutationList) {
+          if (mutation.type === 'childList') {
+            // The header was built... modify the links
+            targetNode.querySelectorAll('a').forEach( (link) => {
+              let url = link.getAttribute('href');
+              if (url) {
+                url = "../../../../.." + url.substring(url.indexOf("/s-"))
+                if (url[0] === "/") {
+                  url = "../../../../.." + url;
+                }
+                if (!url.endsWith(".html")) {
+                  url = url + ".html";
+                }
+                link.setAttribute('href', url);
               }
-              if (url[0] === "/") {
-                url = "../../../../.." + url;
-              }
-              if (!url.endsWith(".html")) {
-                url = url + ".html";
-              }
-              link.setAttribute('href', url);
-            }
-          });
-        //} else if (mutation.type === 'attributes') {
+            });
+          //} else if (mutation.type === 'attributes') {
+          }
         }
-      }
-    };
+      };
 
-    // Create an observer instance linked to the callback function
-    const observer = new MutationObserver(callback);
+      // Create an observer instance linked to the callback function
+      const observer = new MutationObserver(callback);
 
-    callback([{type: 'childList'}], observer);
+      callback([{type: 'childList'}], observer);
 
-    // Start observing the target node for configured mutations
-    observer.observe(targetNode, config);
+      // Start observing the target node for configured mutations
+      observer.observe(targetNode, config);
+    }
+
+    // Make sure we re-write the course lesson links
+    // Select the node that will be observed for mutations
+    const targetCourseNode = document.querySelector('.user-stats-block');
+    if (targetCourseNode) {
+      // Options for the observer (which mutations to observe)
+      const config = { attributes: true, childList: true, subtree: true };
+
+      // Callback function to execute when mutations are observed
+      const course_callback = (mutationList, observer) => {
+        for (const mutation of mutationList) {
+          if (mutation.type === 'childList') {
+            // The course listing was built... modify the links
+            targetCourseNode.querySelectorAll('a').forEach( (link) => {
+              if (!link.hasAttribute('data-reformed')) {
+                link.setAttribute('data-reformed', '');
+                let url = link.getAttribute('href');
+                if (url) {
+                  url = ".." + url.substring(url.indexOf("/s-"))
+                  if (!url.endsWith(".html")) {
+                    url = url + ".html";
+                  }
+                  link.setAttribute('href', url);
+                }
+              }
+            });
+            //} else if (mutation.type === 'attributes') {
+          }
+        }
+      };
+
+      // Create an observer instance linked to the callback function
+      const course_observer = new MutationObserver(course_callback);
+
+      course_callback([{type: 'childList'}], course_observer);
+
+      // Start observing the target node for configured mutations
+      course_observer.observe(targetCourseNode, config);
+    }
   });
 
   // Ensure absolute paths get turned into relative paths
