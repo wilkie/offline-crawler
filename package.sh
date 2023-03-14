@@ -62,12 +62,15 @@ else
 fi
 CURRICULUM_DOMAIN=https://curriculum.code.org
 VIDEO_DOMAIN=http://videos.code.org
+IMAGE_DOMAIN=http://images.code.org
 VIDEO_SSL_DOMAIN=https://videos.code.org
+IMAGE_SSL_DOMAIN=https://images.code.org
 TTS_DOMAIN=https://tts.code.org
 
 # Some links are in the form `//localhost-studio.code.org:3000`, etc
 BASE_CURRICULUM_DOMAIN=${CURRICULUM_DOMAIN:6}
 BASE_VIDEO_DOMAIN=${VIDEO_DOMAIN:5}
+BASE_IMAGE_DOMAIN=${IMAGE_DOMAIN:5}
 BASE_TTS_DOMAIN=${VIDEO_DOMAIN:6}
 
 mkdir -p build
@@ -106,12 +109,15 @@ if [[ ! -z "${LOGIN}" ]]; then
 fi
 
 if [[ -z "${LOCALES}" ]]; then
-  LOCALES="en-US es-MX"
+  LOCALES="en-US es-MX zh-CN"
 fi
 
 if [[ ! -z "${LOCALE}" ]]; then
   LOCALES=${LOCALE}
 fi
+
+LOCALES=(${LOCALES})
+STARTING_LOCALE=${LOCALES[0]}
 
 # This function invokes wget
 download() {
@@ -135,6 +141,7 @@ download_shared() {
 fixup() {
   path=${1}
   replace=${2}
+  replace_locale=${3}
 
   echo "[FIXUP] \`${path}\`"
 
@@ -149,10 +156,15 @@ fixup() {
   sed "s;${CURRICULUM_DOMAIN};${replace};gi" -i ${path}
   sed "s;${BASE_CURRICULUM_DOMAIN};${replace};gi" -i ${path}
 
-  # All other video source has to be truncated, too
+  # All other video sources have to be truncated, too
   sed "s;${VIDEO_DOMAIN};${replace};gi" -i ${path}
   sed "s;${VIDEO_SSL_DOMAIN};${replace};gi" -i ${path}
   sed "s;${BASE_VIDEO_DOMAIN};${replace};gi" -i ${path}
+
+  # All other image sources have to be truncated, too
+  sed "s;${IMAGE_DOMAIN};${replace};gi" -i ${path}
+  sed "s;${IMAGE_SSL_DOMAIN};${replace};gi" -i ${path}
+  sed "s;${BASE_IMAGE_DOMAIN};${replace};gi" -i ${path}
 
   # All tts content should also redirect
   sed "s;${TTS_DOMAIN};${replace};gi" -i ${path}
@@ -161,6 +173,10 @@ fixup() {
   # For some reason, these don't all get converted either
   sed "s;${STUDIO_DOMAIN};${replace};gi" -i ${path}
   sed "s;${BASE_STUDIO_DOMAIN};${replace};gi" -i ${path}
+
+  # Replace 'media?u='-style links
+  sed "s;src\s*=\s*\\\\\"[^\"]\+media?u=[^\"]\+%2F\([^\\\\\"]\+\);src=\\\\\"${replace}/\1;gi" -i ${path}
+  sed "s:src\s*=\s*\\\\&quot;[^\]\+media?u=[^\]\+%2F\([^\]\+\)\\\\:src=\\\\\&quot;${replace}/\1\\\\:gi" -i ${path}
 
   # Repair any weird extension mess that wget introduced
   sed "s;[.]css[.]html;.css;" -i ${path}
@@ -180,19 +196,26 @@ fixup() {
   for key in ${KEYS}
   do
     # Sigh to all of this.
-    # Fix normal "key":"/s/blah/1" -> "key":"${replace}/s/blah/1.html"
-    sed "s;${key}\":\"\([^\"]\+\);${key}\":\"${replace}\1.html;gi" -i ${path}
+    # Fix normal "key":"/s/blah/1" -> "key":"${replace}/s-en-US/blah/1.html"
+    sed "s;${key}\":\"/s\([^\"]\+\);${key}\":\"${replace}/s-${replace_locale}\1.html;gi" -i ${path}
     # Fix slash escaped \"key\":\"/s/blah/1, etc
-    sed "s,${key}\\\\\":\\\\\"\([^\\]\+\),${key}\\\\\":\\\\\"${replace}\1.html,gi" -i ${path}
+    sed "s,${key}\\\\\":\\\\\"/s\([^\\]\+\),${key}\\\\\":\\\\\"${replace}/s-${replace_locale}\1.html,gi" -i ${path}
     # Fix html escaped &quot;key&quot;:&quot;/s/blah/1, etc
-    sed "s,${key}\&quot;:\&quot;\([^\&]\+\),${key}\&quot;:\&quot;${replace}\1.html,gi" -i ${path}
+    sed "s,${key}\&quot;:\&quot;/s\([^\&]\+\),${key}\&quot;:\&quot;${replace}/s-${replace_locale}\1.html,gi" -i ${path}
     # Fix slash escaped html escaped \&quot;key\&quot;:\&quot;/s/blah/1, etc
-    sed "s,${key}\\\\\&quot;:\\\\\&quot;\([^\\]\+\),${key}\\\\\&quot;:\\\\\&quot;${replace}\1.html,gi" -i ${path}
+    sed "s,${key}\\\\\&quot;:\\\\\&quot;/s\([^\\]\+\),${key}\\\\\&quot;:\\\\\&quot;${replace}/s-${replace_locale}\1.html,gi" -i ${path}
   done
+
+  # Rewrite finish link in each level to work with correct locale
+  sed "s;\(finishLink\"\s*:\s*\"[^\"]\+\)\";\1.${replace_locale}.html\";gi" -i ${path}
 
   # Finally and brutally fix any remaining absolute pathed stuff
   # (this breaks the data-appoptions JSON for some levels, unfortunately)
   #sed "s;\"/\([^\"]\+[^/\"]\);\"${replace}/\1.html;gi" -i ${path}
+
+  # Do so for 'src' attributes embedded into things like JavaScript sometimes
+  # e.g. the download_button.png image for videos is generated on the fly.
+  sed "s;src=\"/\([^\"]\+[^/\"]\);src=\"${replace}/\1.html;gi" -i ${path}
 }
 
 # Determine if this is a full Course (multiple lessons) or a single Lesson
@@ -208,8 +231,8 @@ else
   IS_COURSE=1
   COURSE_URL="${STUDIO_DOMAIN}/s/${COURSE}"
 
-  download "-O ${PREFIX}/base_course.html -nc" ${COURSE_URL} "${PREFIX}/wget-course.log"
-  LESSONS=`grep -ohe "/lessons/[0-9]\+/levels/" ${PREFIX}/base_course.html | sed -e "s;/lessons/;;" | sed -e "s;/levels/;;" | sort -n | uniq`
+  download "-O ${PREFIX}/../base_course.html -nc" ${COURSE_URL} "${PREFIX}/wget-course.log"
+  LESSONS=`grep -ohe "/lessons/[0-9]\+/levels/" ${PREFIX}/../base_course.html | sed -e "s;/lessons/;;" | sed -e "s;/levels/;;" | sort -n | uniq`
 
   download "--domains=${DOMAINS} -nc --page-requisites --convert-links --adjust-extension --no-host-directories --continue -H --span-hosts --tries=2 --reject-regex=\"[.]dmg$|[.]exe$|[.]mp4$\" --exclude-domains=${EXCLUDE_DOMAINS}" "${COURSE_URL} https://code.org/tos https://code.org/privacy" "${PREFIX}/wget-course.log"
 
@@ -220,22 +243,29 @@ else
   echo ""
 fi
 
+FINISH_LINK=
 LESSON_LEVELS=
 LEVEL_URLS=
 for LESSON in ${LESSONS}
 do
   # Crawl initial page for the lesson
   echo "Crawling ${COURSE}/lessons/${LESSON}/levels/{position}..."
-  download "-O ${PREFIX}/base_${LESSON}.html -nc" "${STUDIO_DOMAIN}/s/${COURSE}/lessons/${LESSON}/levels/1" "${PREFIX}/wget-levels.log"
+  download "-O ${PREFIX}/../base_${LESSON}.html -nc" "${STUDIO_DOMAIN}/s/${COURSE}/lessons/${LESSON}/levels/1" "${PREFIX}/wget-levels.log"
+
+  #SITE_LOCALES=`cat ${PREFIX}/../base_${LESSON}.html | grep -e "i18nDropdown\":" | grep -ohe "value%3D%22[^%]\+" | sed -u 's;value%3D%22;;'`
+  #LOCALES=(${SITE_LOCALES})
 
   # Determine the number of levels
-  LEVELS=`grep ${PREFIX}/base_${LESSON}.html -ohe "levels/[0-9]\+\"" | sed -u "s;levels/;;" | sed -u "s;\";;" | sort -n | tail -n1`
+  LEVELS=`grep ${PREFIX}/../base_${LESSON}.html -ohe "levels/[0-9]\+\"" | sed -u "s;levels/;;" | sed -u "s;\";;" | sort -n | tail -n1`
   LEVELS="${LEVELS/$'\n'/}"
+
+  # Determine any "finish" link
+  FINISH_LINK=`grep -ohe "finishLink\"\s*:\s*\"[^\"]\+" ${PREFIX}/../base_${LESSON}.html | sed -u "s;finishLink\"\s*:\s*\";;" | sed -u "s;//[^/]\+/;https://code.org/;"`
 
   # If we cannot find it via 'levels/{num}' paths, try to find it using JSON information
   # via "levels":..."position":{num}
   if [[ -z "${LEVELS/$'\n'/}" ]]; then
-    LEVELS=`grep ${PREFIX}/base_${LESSON}.html -ohe "levels\":.*\"position\":[0-9]\+" | sed -u "s;levels\":.*\"position\":;;" | sort -n | tail -n1`
+    LEVELS=`grep ${PREFIX}/../base_${LESSON}.html -ohe "levels\":.*\"position\":[0-9]\+" | sed -u "s;levels\":.*\"position\":;;" | sort -n | tail -n1`
     LEVELS="${LEVELS/$'\n'/}"
   fi
 
@@ -250,10 +280,15 @@ do
   do
     LEVEL_URLS="${LEVEL_URLS}${STUDIO_DOMAIN}/s/${COURSE}/lessons/${LESSON}/levels/${i} "
   done
-done
 
-for locale in ${LOCALES}
-do
+  # If we haven't pulled this via the course page, pull the privacy/tos pages too
+  if [[ -z "${IS_COURSE}" ]]; then
+    LEVEL_URLS="${LEVEL_URLS}https://code.org/tos https://code.org/privacy "
+  fi
+done
+LESSON_LEVELS=(${LESSON_LEVELS})
+
+for locale in "${LOCALES[@]}"; do
   echo ""
   echo "Using ${locale} locale."
 
@@ -273,7 +308,14 @@ do
   echo ""
   echo "Downloading all levels..."
 
-  download "--domains=${DOMAINS} -nc --page-requisites --convert-links --adjust-extension --no-host-directories --continue -H --span-hosts --tries=2 --reject-regex=\"[.]dmg$|[.]exe$|[.]mp4$\" --exclude-domains=${EXCLUDE_DOMAINS}" "${LEVEL_URLS}" "${PREFIX}/wget-levels.log"
+  download "--domains=${DOMAINS} -nc --page-requisites --convert-links --adjust-extension --no-host-directories --continue -H --span-hosts --tries=2 --reject-regex=\"[.]dmg$|[.]exe$|[.]mp4$\" --exclude-domains=${EXCLUDE_DOMAINS}" "${LEVEL_URLS} ${FINISH_LINK}" "${PREFIX}/wget-levels.log"
+
+  if [[ -z "${IS_COURSE}" ]]; then
+    echo ""
+    echo "Fixing up privacy/tos pages..."
+    fixup "${PREFIX}/tos.html" "."
+    fixup "${PREFIX}/privacy.html" "."
+  fi
 
   echo ""
   echo "Downloading other pages..."
@@ -302,7 +344,7 @@ do
     cp videos/${dir}/${filename} ${PREFIX}/${dir}/${filename}
   done
 
-  LESSON_LEVELS=(${LESSON_LEVELS})
+  FIXUP_PATHS=
   j=0
   for LESSON in ${LESSONS}
   do
@@ -368,11 +410,31 @@ do
       download "--domains=${DOMAINS} --page-requisites --convert-links --directory-prefix ${PREFIX} --no-host-directories --continue -H --span-hosts --tries=2 --reject-regex=\"[.]dmg$|[.]exe$|[.]mp4$\" --exclude-domains=${EXCLUDE_DOMAINS}" ${STUDIO_DOMAIN}/${url} "${PREFIX}/wget-other.log"
     done
 
+    if [[ ! -z ${FINISH_LINK} ]]; then
+      echo ""
+      echo "Gathering assets for certificate page..."
+      path=`echo ${FINISH_LINK} | sed -u 's;http[s]\?://[^/]\+/;;'`
+      mv ${PREFIX}/${path}.html ${PREFIX}/${path}.${locale}.html
+      path="${PREFIX}/${path}.${locale}.html"
+      ASSETS=`grep ${path} -ohe "certificate_image_url\"\s*:\s*\"[^\"]\+" | sed -u "s;[^\"]\+\"\s*:\s*\";;g" | sed -u "s;^//;https://;"`
+
+      for url in ${ASSETS}
+      do
+        path=`echo ${url} | sed -u "s;http[s]\?://[^/]\+/\+;;"`
+        dir=$(dirname "${path}")
+        filename=$(basename "${path}")
+        echo "OK? ${url}"
+
+        mkdir -p ${PREFIX}/${dir}
+        download_shared "--reject-regex=\"[.]dmg$|[.]exe$|[.]mp4$\" --exclude-domains=videos.code.org" ${url} "${PREFIX}/wget-assets.log"
+      done
+    fi
+
     echo ""
     echo "Gathering assets from levels..."
 
     # wget occasionally trips up getting script tags in the body, too, for some reason
-    path="${PREFIX}/base_${LESSON}.html"
+    path="${PREFIX}/../base_${LESSON}.html"
     ASSETS=`grep ${path} -e "<[sS][cC][rR][iI][pP][tT].\+[sS][rR][cC]\s*=\s*\"/" | grep -ohe "[sS][rR][cC]\s*=\s*\"[^\"]\+" | sed -u "s;[sS][rR][cC]\s*=\s*\"/;;"`
     for url in ${ASSETS}
     do
@@ -492,12 +554,26 @@ do
     fi
 
     # Individual fix-ups
-    FIXUP_PATHS=
     for (( i=1; i<=${LEVELS}; i++ ))
     do
       path="${PREFIX}/s/${COURSE}/lessons/${LESSON}/levels/${i}.html"
       FIXUP_PATHS="${FIXUP_PATHS} ${path}"
     done
+
+    # Just go ahead and fixup the finish link page
+    if [[ ! -z ${FINISH_LINK} ]]; then
+      # Ensure the finish page (certificate page) has relative links to the
+      # root of the module.
+      path=`echo ${FINISH_LINK} | sed -u 's;http[s]\?://[^/]\+/;;'`
+      route=$(dirname "${path}")
+      replace=`echo ${route} | sed -u 's;\(/\|^\)[^/]\+;\1..;g'`
+      path="${PREFIX}/${path}.${locale}.html"
+      fixup ${path} ${replace} ${locale}
+
+      # Ensure it gets copied over
+      mkdir -p ${PREFIX}/../${route}
+      cp ${path} ${PREFIX}/../${route}
+    fi
 
     # Detect usage of the Ace Editor and pull those assets as well
     # This is true if blockly/js/ace.js is present in ASSETS
@@ -518,7 +594,7 @@ do
 
   for path in ${FIXUP_PATHS}
   do
-    fixup ${path} "../../../../.."
+    fixup ${path} "../../../../.." ${locale}
   done
 
   echo ""
@@ -650,6 +726,13 @@ do
       done
     fi
 
+    # Get the hard-coded images (download_button for video, etc)
+    ASSETS=`grep ${js} -ohe "src\s*=\s*\"/[^\"]*" | sed -u 's;^src\s*=\s*"/;;g'`
+    for url in ${ASSETS}
+    do
+      STATIC="${STATIC} ${url}"
+    done
+
     # Get blockly assets that are hard-coded
     ASSETS=`grep ${js} -ohe "src:\s*\"/blockly/[^\"]*" | sed -u 's;^src:\s*"/;;g'`
     for url in ${ASSETS}
@@ -681,7 +764,7 @@ do
 
   for path in ${FIXUP_PATHS}
   do
-    fixup ${path} "../../../../.."
+    fixup ${path} "../../../../.." ${locale}
   done
 
   # Add some of the extra silly things
@@ -691,13 +774,29 @@ do
   # Move the 'levels' to a locale-specific place
   mv ${PREFIX}/s ${PREFIX}/../s-${locale}
 
+  # Move the video transcripts to a locale-specific place
+  mv ${PREFIX}/notes ${PREFIX}/../notes-${locale}
+
   # For all content, move it over to the resulting directory if it doesn't
   # already exist
   for item in `ls ${PREFIX}`; do
-    base=$(basename ${item})
-    if [[ ! -e ${PREFIX}/../${base} ]]; then
-      mv ${item} ${PREFIX}/../${base}
-    do
+    if [[ ! -e ${PREFIX}/../${item} ]]; then
+      mv ${PREFIX}/${item} ${PREFIX}/../${item}
+    fi
+  done
+
+  # Move any new css files
+  for item in `ls ${PREFIX}/assets/css`; do
+    if [[ ! -e ${PREFIX}/../assets/css/${item} ]]; then
+      mv ${PREFIX}/assets/css/${item} ${PREFIX}/../assets/css/${item}
+    fi
+  done
+
+  # Move any new js files
+  for item in `ls ${PREFIX}/assets/js`; do
+    if [[ ! -e ${PREFIX}/../assets/js/${item} ]]; then
+      mv ${PREFIX}/assets/js/${item} ${PREFIX}/../assets/js/${item}
+    fi
   done
 
   # Remove our temporary space so we can do it again
@@ -706,22 +805,34 @@ do
 done
 
 # Point to our resulting build path
-PREFIX=$(realpath ${PREFIX}/..)
+PREFIX=build/${BUILD_DIR}
 
 # Add shims
 
 echo ""
 echo "Adding JS/CSS shims..."
 
-DEST="assets/application.js js/jquery.min.js assets/js/webpack*.js assets/js/vendor*.js assets/js/essential*.js assets/js/common*.js assets/js/code-studio-*.js"
+DEST="${PREFIX}/assets/application*.js ${PREFIX}/js/jquery.min*.js ${PREFIX}/assets/js/webpack*.js ${PREFIX}/assets/js/vendor*.js ${PREFIX}/assets/js/essential*.js ${PREFIX}/assets/js/common*.js ${PREFIX}/assets/js/code-studio-*.js"
+DEST=`ls ${DEST}`
 
 for js in ${DEST}
 do
-  path=`echo ${PREFIX}/${js} 2> /dev/null`
+  path=`echo ${js} 2> /dev/null`
   if [ -f ${path} ]; then
     echo "[PREPEND] \`shims/shim.js\` -> \`${path}\`"
-    cat shims/shim.js ${PREFIX}/${js} > ${PREFIX}/${js}.new
-    mv ${PREFIX}/${js}.new ${PREFIX}/${js}
+
+    # Create a new file with the shims prepended
+    cat shims/shim.js ${js} > ${js}.new
+
+    # Updates to add LOCALES
+    LOCALE_ARRAY="unk-unk"
+    for locale in "${LOCALES[@]}"; do
+      LOCALE_ARRAY="${locale}\", \"${LOCALE_ARRAY}"
+    done
+    sed "s;%LOCALES%;${LOCALE_ARRAY};" -i ${js}.new
+
+    # Commit it
+    mv ${js}.new ${js}
   fi
 done
 
@@ -748,6 +859,9 @@ echo "Copying static data..."
 cp -r static/api ${PREFIX}/.
 cp -r static/dashboardapi ${PREFIX}/.
 cp -r static/levels ${PREFIX}/.
+
+# Add common things to STATIC
+STATIC="${STATIC} shared/images/Powered-By_logo-horiz_RGB.png"
 
 # Copy in static content
 for static in ${STATIC}
@@ -915,16 +1029,16 @@ echo
 echo "Creating index.html to redirect to the first level."
 echo "[CREATE] \`index.html\`"
 if [[ -z "${IS_COURSE}" ]]; then
-  echo "<meta http-equiv=\"refresh\" content=\"0; URL=s/${COURSE}/lessons/${LESSON}/levels/1.html\" />" > ${PREFIX}/index.html
+  echo "<meta http-equiv=\"refresh\" content=\"0; URL=s-${STARTING_LOCALE}/${COURSE}/lessons/${LESSON}/levels/1.html\" />" > ${PREFIX}/index.html
 else
-  echo "<meta http-equiv=\"refresh\" content=\"0; URL=s/${COURSE}.html\" />" > ${PREFIX}/index.html
+  echo "<meta http-equiv=\"refresh\" content=\"0; URL=s-${STARTING_LOCALE}/${COURSE}.html\" />" > ${PREFIX}/index.html
 fi
 echo "[CREATE] \`index.html\`"
 mkdir -p ${PREFIX}/zip-root
 if [[ -z "${IS_COURSE}" ]]; then
-  echo "<meta http-equiv=\"refresh\" content=\"0; URL=${BUILD_DIR}/s/${COURSE}/lessons/${LESSON}/levels/1.html\" />" > ${PREFIX}/zip-root/index.html
+  echo "<meta http-equiv=\"refresh\" content=\"0; URL=${BUILD_DIR}/s-${STARTING_LOCALE}/${COURSE}/lessons/${LESSON}/levels/1.html\" />" > ${PREFIX}/zip-root/index.html
 else
-  echo "<meta http-equiv=\"refresh\" content=\"0; URL=${BUILD_DIR}/s/${COURSE}.html\" />" > ${PREFIX}/zip-root/index.html
+  echo "<meta http-equiv=\"refresh\" content=\"0; URL=${BUILD_DIR}/s-${STARTING_LOCALE}/${COURSE}.html\" />" > ${PREFIX}/zip-root/index.html
 fi
 echo "[CREATE] \`sandbox.html\`"
 echo "<html><head><style>body,html{padding:0;margin:0;width:100%;height:100%;}iframe{position:absolute;left:0;right:0;top:0;bottom:0;width:100%;height:100%;}</style></head><body><iframe src=\"index.html\" sandbox=\"allow-scripts allow-same-origin\"></body></html>" > ${PREFIX}/sandbox.html

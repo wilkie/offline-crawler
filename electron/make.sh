@@ -44,7 +44,7 @@ npm install
 echo "Copying"
 echo "======="
 
-BUILD_DIR=en-${COURSE}
+BUILD_DIR=${COURSE}
 PREFIX=build/${BUILD_DIR}
 
 if [ ! -d "../${PREFIX}" ]; then

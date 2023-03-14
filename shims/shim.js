@@ -1,5 +1,13 @@
 if (!window.__offline_replaced) {
   window.__offline_replaced = true;
+  const LOCALES = ["%LOCALES%"];
+
+  // Get current locale
+  window.__locale = "en-US";
+  let dropdown = document.querySelector('select#locale');
+  if (dropdown) {
+    window.__locale = dropdown.value;
+  }
 
   try {
       window.__localStorage = window.localStorage;
@@ -7,6 +15,46 @@ if (!window.__offline_replaced) {
       window.__indexedDB = window.indexedDB;
   }
   catch {
+  }
+
+  function fixupLocaleDropdown() {
+    // The footer was modified, try to find the locale dropdown
+    let dropdown = document.querySelector('select#locale');
+    if (dropdown) {
+      // Remove any locales we don't have
+      dropdown.querySelectorAll("option").forEach( (option) => {
+        if (LOCALES.indexOf(option.getAttribute('value')) < 0) {
+          option.remove();
+        }
+      });
+
+      // Get the current locale
+      window.__locale = dropdown.value;
+
+      // Hijack the behavior when the locale is updated
+      // It needs to reload the current page in the given locale
+      // (replace /s-<locale> in current URL with selected locale)
+      let form = document.querySelector('form#localeForm');
+      if (form && !form.hasAttribute('bound')) {
+        form.setAttribute('bound', '');
+        form.setAttribute('action', '');
+        form.submit = () => {
+          let option = dropdown.value;
+          let url = document.location.href;
+          let base = url.substring(0, url.indexOf('/s-'));
+          let rest = url.substring(base.length + 1);
+          rest = rest.substring(rest.indexOf('/'));
+          let newURL = base + '/s-' + option + rest;
+          console.log("navigating to", option, newURL);
+          document.location.href = newURL;
+        };
+        form.addEventListener('submit', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          form.submit();
+        });
+      }
+    }
   }
 
   function callApi(method, path, data) {
@@ -276,7 +324,10 @@ if (!window.__offline_replaced) {
             targetNode.querySelectorAll('a').forEach( (link) => {
               let url = link.getAttribute('href');
               if (url) {
-                url = "../../../../.." + url.substring(url.indexOf("/s-"))
+                url = url.replace("../../../../../s/", "../../../../");
+                if (url.indexOf("/s-") >= 0) {
+                  url = "../../../../.." + url.substring(url.indexOf("/s-"));
+                }
                 if (url[0] === "/") {
                   url = "../../../../.." + url;
                 }
@@ -300,6 +351,127 @@ if (!window.__offline_replaced) {
       observer.observe(targetNode, config);
     }
 
+    // Make sure we re-write the certificate page
+    // Select the node that will be observed for mutations
+    const targetCongratsNode = document.querySelector('#congrats-container');
+    if (targetCongratsNode) {
+      // Options for the observer (which mutations to observe)
+      const config = { attributes: true, childList: true, subtree: true };
+
+      // Callback function to execute when mutations are observed
+      const callback = (mutationList, observer) => {
+        for (const mutation of mutationList) {
+          if (mutation.type === 'childList') {
+            // The certificate container was built... modify the links
+            targetCongratsNode.querySelectorAll('a').forEach( (link) => {
+              let url = link.getAttribute('href');
+              if (url && url.indexOf('/certificates/') >= 0) {
+                // Download the certificate itself
+                if (!link.__bound) {
+                  link.__bound = true;
+                  link.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    event.preventDefault();
+
+                    let img = link.querySelector('img');
+                    if (img) {
+                      if (img.src.startsWith('data')) {
+                        // Download the image
+                        var dllink = document.createElement("a");
+                        dllink.download = "hoc-certificate.png";
+                        dllink.href = img.src;
+                        document.body.appendChild(dllink);
+                        dllink.click();
+                        document.body.removeChild(dllink);
+                        dllink.remove();
+                      }
+                    }
+                  });
+                }
+              }
+              else if (url && url.indexOf('/print_certificates/') >= 0) {
+                // Present a printable certificate
+              }
+              else {
+                // Assume this is the "back to activity" link... so send it back
+                link.setAttribute('href', document.referrer);
+              }
+            });
+
+            let nameField = targetCongratsNode.querySelector('input#name');
+            targetCongratsNode.querySelectorAll('button').forEach( (button) => {
+              if (button.querySelector('.fa-print')) {
+                // Print button
+                button.addEventListener('click', (event) => {
+                  event.stopPropagation();
+                  event.preventDefault();
+                });
+              }
+              else {
+                // Assume the submit button
+                button.addEventListener('click', (event) => {
+                });
+              }
+            });
+
+            targetCongratsNode.querySelectorAll('img').forEach( (img) => {
+              if (!img.__setAttribute) {
+                img.__setAttribute = true;
+                img.__originalSrc = img.src;
+                img.setAttribute = function(attribute, url) {
+                  if (attribute === "src") {
+                    if (url.startsWith("/certificate_images")) {
+                      console.log("set attribute", attribute, url);
+
+                      // Draw the given name at the given position
+                      let name = nameField.value;
+                      let x = img.naturalWidth / 2;
+                      let y = 530;
+
+                      // Generate a canvas (an offscreen canvas is likely better, here,
+                      // but support is unknown for our audience just yet.)
+                      let canvas = document.createElement('canvas');
+                      canvas.style.position = 'absolute';
+                      canvas.style.left = '-9999px';
+                      canvas.style.width = img.naturalWidth + 'px';
+                      canvas.style.height = img.naturalHeight + 'px';
+                      canvas.setAttribute('width', img.naturalWidth);
+                      canvas.setAttribute('height', img.naturalHeight);
+                      document.body.appendChild(canvas);
+
+                      // Start with the canvas image
+                      let ctx = canvas.getContext('2d');
+                      ctx.drawImage(img, 0, 0);
+
+                      // Draw the name
+                      ctx.textAlign = 'center';
+                      ctx.font = '100px serif';
+                      ctx.fillText(name, x, y, img.naturalWidth * 0.75);
+
+                      // Resupply the image with the new rendered image
+                      img.src = canvas.toDataURL();
+
+                      // Remove our canvas
+                      canvas.remove();
+                    }
+                  }
+                }
+              };
+            });
+          //} else if (mutation.type === 'attributes') {
+          }
+        }
+      };
+
+      // Create an observer instance linked to the callback function
+      const observer = new MutationObserver(callback);
+
+      callback([{type: 'childList'}], observer);
+
+      // Start observing the target node for configured mutations
+      observer.observe(targetCongratsNode, config);
+    }
+
     // Make sure we re-write the course lesson links
     // Select the node that will be observed for mutations
     const targetCourseNode = document.querySelector('.user-stats-block');
@@ -316,8 +488,10 @@ if (!window.__offline_replaced) {
               if (!link.hasAttribute('data-reformed')) {
                 link.setAttribute('data-reformed', '');
                 let url = link.getAttribute('href');
+                console.log("transforming", url);
                 if (url) {
-                  url = ".." + url.substring(url.indexOf("/s-"))
+                  url = url.replace("../../../../../s/", "./");
+                  url = url.replace("../s/", "./");
                   if (!url.endsWith(".html")) {
                     url = url + ".html";
                   }
@@ -338,6 +512,37 @@ if (!window.__offline_replaced) {
       // Start observing the target node for configured mutations
       course_observer.observe(targetCourseNode, config);
     }
+
+    // Make sure we re-write the localization dropdown
+    // Select the node that will be observed for mutations
+
+    const targetFooterNode = document.querySelector('#page-small-footer');
+    if (targetFooterNode) {
+      // Options for the observer (which mutations to observe)
+      const config = { attributes: true, childList: true, subtree: true };
+
+      // Callback function to execute when mutations are observed
+      const footer_callback = (mutationList, observer) => {
+        for (const mutation of mutationList) {
+          if (mutation.type === 'childList') {
+            // The footer was modified, try to find the locale dropdown
+            let dropdown = targetFooterNode.querySelector('select#locale');
+            if (dropdown) {
+              fixupLocaleDropdown();
+            }
+          }
+        }
+      };
+
+      // Create an observer instance linked to the callback function
+      const footer_observer = new MutationObserver(footer_callback);
+
+      footer_callback([{type: 'childList'}], footer_observer);
+
+      // Start observing the target node for configured mutations
+      footer_observer.observe(targetFooterNode, config);
+    }
+    fixupLocaleDropdown();
   });
 
   // Ensure absolute paths get turned into relative paths
@@ -368,6 +573,13 @@ if (!window.__offline_replaced) {
         }
       }
 
+      // Redirect video transcripts / notes
+      if (url.startsWith("/notes/")) {
+        url = url.substring(7);
+        url = "/notes-" + window.__locale + "/" + url;
+      }
+
+      // Transform absolute to relative (assuming level URL path)
       if (url[0] === "/") {
         url = "../../../../.." + url;
       }
@@ -378,11 +590,13 @@ if (!window.__offline_replaced) {
         let response = null;
         let path = url;
 
+        // Redirect API calls to our own internal implementation
         if (url.startsWith("../../../../../api/")) {
           path = url.substring("../../../../../api/".length);
           response = callApi(method, path, data);
         }
 
+        // API calls can also come in at these '/v3/' paths
         if (url.startsWith("../../../../../v3/")) {
           path = url.substring("../../../../../v3/".length);
           response = callApi(method, path, data);

@@ -1,4 +1,4 @@
-# Computer Science Principles - Unit 1 - 2022
+# Computer Science Principles - Unit 2 - 2022
 
 NAME="Computer Science Principles 2022 - Unit 2 - The Internet"
 DESCRIPTION="This unit reveals how the Internet was designed to connect billions of devices and people to one another. Learn how the different protocols of the Internet work and actually build them yourself using the Internet Simulator. Then consider the impacts the Internet has had, both good and bad, on modern life."

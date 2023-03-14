@@ -1,12 +1,13 @@
 /* These are overrides for the offline apps */
 
 /* Turn off navigation header */
-.headerlinks {
+.headerlinks,
+#headerlinks {
   display: none !important;
 }
 
 /* Turn off some footer links (except privacy and tos) */
-.navbar-static-top.footer a:not([href$="privacy"]) + .dim, .navbar-static-top.footer .dim + a:not([href$="tos"]) {
+.navbar-static-top.footer a:not([href$="privacy.html"]) + .dim, .navbar-static-top.footer .dim + a:not([href$="tos.html"]) {
   display: none !important;
 }
 
@@ -21,12 +22,26 @@
 }
 
 /* Hide the signup/support/help buttons as they don't function in offline) */
+#pageheader #right,
+#pageheader #help-button,
 .header_right {
   display: none !important;
 }
 
-/* Unfortunately, the language dropdown does not work either! */
-.i18n-dropdown-container {
+/* Hide everything after the certificate in the "finish" page for HoC modules */
+/* This is to hide the 'Next, do these project' which don't work offline */
+#congrats-container > div > div ~ * {
+  display: none !important;
+}
+
+/* Hide the 'share' section for the certificates */
+#congrats-container > div > div > div > h2,
+#congrats-container > div > div > div > h2 ~ * {
+  display: none !important;
+}
+
+/* Hide share/remix header buttons */
+#project_info_container {
   display: none !important;
 }
 
@@ -53,4 +68,10 @@
 /* Removing the ping back api image */
 .full_container > img {
   display: none !important;
+}
+
+/* Some broken styling for the video.js buttons (minecraft levels in particular) */
+.vjs-button > .vjs-icon-placeholder:before {
+  font-size: 0.5em;
+  line-height: 1.5em;
 }
