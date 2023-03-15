@@ -21,8 +21,12 @@ if [[ "${MODULE}" == *".sh" ]]; then
   MODULE=${MODULE::-3}
 fi
 
-if [ -f ./modules/${MODULE}.sh ]; then
-  source ./modules/${MODULE}.sh
+# Gather the version and URLs for third-party tools
+source ${ROOT_PATH}/VERSIONS.sh
+
+# Negotiate the module requested
+if [ -f ${ROOT_PATH}/modules/${MODULE}.sh ]; then
+  source ${ROOT_PATH}/modules/${MODULE}.sh
 else
   if [[ -z "${MODULE}" ]]; then
     echo "Error: No module specified."
@@ -35,9 +39,12 @@ else
   exit 1
 fi
 
-# Where the code-dot-org repo is
-CODE_DOT_ORG_REPO_PATH=../code-dot-org
+# Where the code-dot-org repo is (for copying static assets more quickly)
+if [[ -z "${CODE_DOT_ORG_REPO_PATH}" ]]; then
+  CODE_DOT_ORG_REPO_PATH=${ROOT_PATH}/../code-dot-org
+fi
 
+# Determine if that path exists.
 if [ ! -d ${CODE_DOT_ORG_REPO_PATH} ]; then
   echo "Error: Cannot find the 'code-dot-org' repo in \${CODE_DOT_ORG_REPO_PATH} as ${CODE_DOT_ORG_REPO_PATH}."
   exit 1
@@ -45,6 +52,8 @@ else
   echo "Using assets found locally in $(realpath ${CODE_DOT_ORG_REPO_PATH})."
 fi
 
+# Determine the URLs that we will crawl. If USE_REMOTE is set, it crawls the
+# production site instead of a development instance.
 if [[ -z "${USE_REMOTE}" ]]; then
   STUDIO_DOMAIN=http://localhost-studio.code.org:3000
   MAIN_DOMAIN=http://localhost.code.org:3000
@@ -60,6 +69,9 @@ else
   BASE_STUDIO_DOMAIN=${STUDIO_DOMAIN:6}
   BASE_MAIN_DOMAIN=${MAIN_DOMAIN:6}
 fi
+
+# These are content domains. They must be our production sites since the
+# crawler will not be able to access the AWS buckets themselves.
 CURRICULUM_DOMAIN=https://curriculum.code.org
 VIDEO_DOMAIN=http://videos.code.org
 IMAGE_DOMAIN=http://images.code.org
@@ -73,9 +85,11 @@ BASE_VIDEO_DOMAIN=${VIDEO_DOMAIN:5}
 BASE_IMAGE_DOMAIN=${IMAGE_DOMAIN:5}
 BASE_TTS_DOMAIN=${VIDEO_DOMAIN:6}
 
+# Create the build path. This contains the crawled pages.
 mkdir -p build
 
-# The build directory
+# The build directory will have a `tmp` path which contains the pages
+# 'in-flight' before they are placed in locale-specific places.
 BUILD_DIR=${COURSE}
 PREFIX=build/${BUILD_DIR}/tmp
 
@@ -87,10 +101,16 @@ if [ -d ${PREFIX} ]; then
   rm -r ${PREFIX}
 fi
 
+# Create that build path (./build/<course>/tmp)
 mkdir -p ${PREFIX}
 touch ${PREFIX}/wget_log.txt
 
-# This is the argument to wget to use a logged in user session
+# This is the argument to wget to use a logged in user session. We use the
+# 'login.sh' script to create a user session, if required. Otherwise, we just
+# use a session-less connection.
+#
+# When the session exists, the flag to wget is augmented to use those cookies
+# such that this user is requesting the pages and performing the crawl.
 SESSION=
 HASHED_EMAIL=
 if [[ ! -z "${LOGIN}" ]]; then
@@ -108,22 +128,49 @@ if [[ ! -z "${LOGIN}" ]]; then
   SESSION="--load-cookies ${SESSION_COOKIE}"
 fi
 
-if [[ -z "${LOCALES}" ]]; then
-  LOCALES="en-US es-MX zh-CN"
-fi
-
+# The 'LOCALE' variable specifically crawls just one locale. So, it
+# overrides the locale list.
 if [[ ! -z "${LOCALE}" ]]; then
   LOCALES=${LOCALE}
 fi
 
-LOCALES=(${LOCALES})
-STARTING_LOCALE=${LOCALES[0]}
+# The 'LOCALES' variable can be a space-delimited list of locale codes to crawl
+# and aggregate in the module. If not given, they will be determined later on
+# when a page is crawled. By default, they will be ALL supported locales listed
+# in the site's locale dropdown. This behavior is overwritten by specifying that
+# LOCALES variable before performing the script.
+if [[ ! -z "${LOCALES}" ]]; then
+  # Ensure that LOCALES is treated as an array and get the 'initial' locale as
+  # the first item in that list.
+  LOCALES=(${LOCALES})
+  STARTING_LOCALE=${LOCALES[0]}
+fi
 
-# This function invokes wget
+# This function invokes wget to download a set of URLs.
+#
+# Invoke as:
+#   download "<wget options>" "<URL>" "<log file>"
+#
+# The log file will be appended with the full wget output.
+#
+# The output is filtered to make it clearer to read while the crawler is in
+# motion. It will show you the URL being downloaded and also note when wget
+# is rewriting links.
 download() {
   wget ${SESSION} --directory-prefix ${PREFIX} ${1} ${2} |& tee -a ${3} | grep --line-buffered -ohe "[0-9]--\(\s\s.\+\)$" -e"Converting links in \(.\+\)$" | sed -u "s/in /[CONVERT-LINKS] /" | sed -u "s/--\s/ x [GET]/" | cut -d " " -f3,4
 }
 
+# This function downloads a set of URLs assuming they are shared resources.
+# These resources will not be downloaded again by any other module if already
+# found in the `/shared/` path.
+#
+# The resource is downloaded to that `shared` path if needed. Then, it is copied
+# to the `build` path from the `shared` path if it doesn't exist there already.
+#
+# Invoke as (same as normal 'download'):
+#   download_shared "<wget options>" "<URL>" "<log file>"
+#
+# See `download()` above for information about the logging process.
 download_shared() {
   relative=`echo "${2}" | sed -E 's/^\s*.*:\/\/[^/]+\/[/]?//g'`
   dir=$(dirname "${relative}")
@@ -138,6 +185,91 @@ download_shared() {
   fi
 }
 
+# This function downloads a youtube link as an mp4 using a third-party program.
+# The 'video_path' variable contains the path to the downloaded video.
+#
+# Invoke as:
+#   download_youtube "<youtube url>"
+#   echo "${video_path}"
+#
+# Example:
+#   download_youtube "https://www.youtube.com/watch?v=Vlj1_X474to"
+#   # We expect '${video_file}' to be something like:
+#   # "blah/videos/youtube/Debugging_Global_vs._Local_Variables-Vlj1_X474to.mp4"
+download_youtube() {
+  url=${1}
+
+  echo "[YTDL] Getting youtube video: ${url} ..."
+
+  # Ensure we have the youtube-dl program
+  mkdir -p ${ROOT_PATH}/bin
+  if [ ! -e ${ROOT_PATH}/bin/youtube-dl ]; then
+    echo "Getting 'youtube-dl'"
+    wget ${YOUTUBE_DL_RELEASE_URL} -O ${ROOT_PATH}/bin/youtube-dl 2> /dev/null > /dev/null
+    chmod a+rx ${ROOT_PATH}/bin/youtube-dl
+    echo "Done."
+  fi
+
+  # Ensure there is a 'youtube' video path
+  mkdir -p ${ROOT_PATH}/videos/youtube
+
+  # Do a quick check for the presence of the video file, first
+  video_id=${url##*=}
+  video_path=`ls ${ROOT_PATH}/videos/youtube/*${video_id}.mp4 2> /dev/null`
+  if [ ! -e "${video_path}" ]; then
+    # Invoke youtube-dl on the given URL and store the filename of the downloaded
+    # video into 'video_path'. The output will be placed in a shared place for all
+    # downloaded videos across all modules.
+    #
+    # The '--restrict-filenames' ensures that no spaces or non-ASCII characters 
+    # are in the filename.
+    #
+    # The '-o' tells it to place the output video in the given path with the
+    # format 'title-id.ext' where the title is the youtube video title and the id
+    # is the id of the video on youtube.
+    #
+    # The '-w' tells the program to only download it if the video doesn't already
+    # exist.
+    ${ROOT_PATH}/bin/youtube-dl -w ${url} -o "${ROOT_PATH}/videos/youtube/%(title)s-%(id)s.%(ext)s" --restrict-filenames > /dev/null 2> /dev/null
+    video_path=`ls ${ROOT_PATH}/videos/youtube/*${video_id}.mp4 2> /dev/null`
+    echo "Downloaded ${url} as $(basename "${video_path}")"
+  fi
+
+  # Negotiate whether or not the video was downloaded and then whether or not
+  # a copy of it exists in the module's build path.
+  if [ -e "${video_path}" ]; then
+    mkdir -p ${PREFIX}/../videos/youtube
+    if [ ! -e "${PREFIX}/../videos/youtube/$(basename "${video_path}")" ]; then
+      cp "${video_path}" ${PREFIX}/../videos/youtube
+      echo "Copied $(basename "${video_path}") to module."
+    else
+      echo "Video file $(basename "${video_path}") already exists in module."
+    fi
+  else
+    echo "WARNING: could not download youtube video: ${url}"
+  fi
+}
+
+download_youtube "https://www.youtube.com/watch?v=Vlj1_X474to"
+exit
+
+# This function 'fixes' links in resources.
+#
+# The `wget` program does an OK job at rewriting links, but only focuses on
+# those links found in the normal HTML crawling path. So, links embedded in our
+# <script> tags or within CSS or JS that are even slightly unusual will not be
+# updated properly. This function does that work.
+#
+# Invoke as:
+#   fixup "<file path>" "<path prefix>" ["<locale>"]
+#
+# The `path prefix` is the path that is prepended to absolute links in the
+# resource to form appropriate relative paths.
+#
+# The `locale` string optionally allows the fixup to properly augment links
+# that are affected by locale. So, when it is a link to a localized page from
+# a localized page, that link is updated to properly go to the crawled page for
+# the same locale.
 fixup() {
   path=${1}
   replace=${2}
@@ -252,8 +384,19 @@ do
   echo "Crawling ${COURSE}/lessons/${LESSON}/levels/{position}..."
   download "-O ${PREFIX}/../base_${LESSON}.html -nc" "${STUDIO_DOMAIN}/s/${COURSE}/lessons/${LESSON}/levels/1" "${PREFIX}/wget-levels.log"
 
-  #SITE_LOCALES=`cat ${PREFIX}/../base_${LESSON}.html | grep -e "i18nDropdown\":" | grep -ohe "value%3D%22[^%]\+" | sed -u 's;value%3D%22;;'`
-  #LOCALES=(${SITE_LOCALES})
+  # Negotiate which locales we want to crawl. If the LOCALES variable is
+  # specified, those locales are crawled and placed in the distribution.
+  # However, if nothing is specified, all locales are downloaded that the site
+  # lists in the locale dropdown.
+  if [[ -z "${LOCALES}" ]]; then
+    SITE_LOCALES=`cat ${PREFIX}/../base_${LESSON}.html | grep -e "i18nDropdown\":" | grep -ohe "value%3D%22[^%]\+" | sed -u 's;value%3D%22;;'`
+    LOCALES=(${SITE_LOCALES})
+
+    # Ensure that LOCALES is treated as an array and get the 'initial' locale as
+    # the first item in that list.
+    LOCALES=(${LOCALES})
+    STARTING_LOCALE=${LOCALES[0]}
+  fi
 
   # Determine the number of levels
   LEVELS=`grep ${PREFIX}/../base_${LESSON}.html -ohe "levels/[0-9]\+\"" | sed -u "s;levels/;;" | sed -u "s;\";;" | sort -n | tail -n1`
