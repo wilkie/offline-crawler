@@ -175,6 +175,11 @@ download_shared() {
   relative=`echo "${2}" | sed -E 's/^\s*.*:\/\/[^/]+\/[/]?//g'`
   dir=$(dirname "${relative}")
   filename=$(basename "${relative}")
+
+  # Replace any '?' or '=' with '-'
+  filename=${filename//\?/-}
+  filename=${filename//\=/-}
+
   mkdir -p "${SHARED}/${dir}"
   mkdir -p "${PREFIX}/${dir}"
 
@@ -187,10 +192,13 @@ download_shared() {
 
 # This function downloads a youtube link as an mp4 using a third-party program.
 # The 'video_path' variable contains the path to the downloaded video.
+# The 'video_id' variable contains the youtube id for this video.
+# The 'video_url' variable would be the url for the video relative to the root
+# page.
 #
 # Invoke as:
 #   download_youtube "<youtube url>"
-#   echo "${video_path}"
+#   echo "${video_id}: ${video_path} -> ${video_url}"
 #
 # Example:
 #   download_youtube "https://www.youtube.com/watch?v=Vlj1_X474to"
@@ -235,6 +243,9 @@ download_youtube() {
     echo "Downloaded ${url} as $(basename "${video_path}")"
   fi
 
+  # Determine the relative url
+  video_url="videos/youtube/$(basename "${video_path}")"
+
   # Negotiate whether or not the video was downloaded and then whether or not
   # a copy of it exists in the module's build path.
   if [ -e "${video_path}" ]; then
@@ -249,9 +260,6 @@ download_youtube() {
     echo "WARNING: could not download youtube video: ${url}"
   fi
 }
-
-download_youtube "https://www.youtube.com/watch?v=Vlj1_X474to"
-exit
 
 # This function 'fixes' links in resources.
 #
@@ -311,14 +319,20 @@ fixup() {
   sed "s:src\s*=\s*\\\\&quot;[^\]\+media?u=[^\]\+%2F\([^\]\+\)\\\\:src=\\\\\&quot;${replace}/\1\\\\:gi" -i ${path}
 
   # Repair any weird extension mess that wget introduced
-  sed "s;[.]css[.]html;.css;" -i ${path}
-  sed "s;[.]js[.]html;.js;" -i ${path}
-  sed "s;[.]woff[.]html;.woff;" -i ${path}
-  sed "s;[.]woff2[.]html;.woff2;" -i ${path}
-  sed "s;[.]ttf[.]html;.ttf;" -i ${path}
-  sed "s;[.]png[.]html;.png;" -i ${path}
-  sed "s;[.]svg[.]html;.svg;" -i ${path}
-  sed "s;[.]gif[.]html;.gif;" -i ${path}
+  sed "s;[.]css[.]html;.css;gi" -i ${path}
+  sed "s;[.]js[.]html;.js;gi" -i ${path}
+  sed "s;[.]woff[.]html;.woff;gi" -i ${path}
+  sed "s;[.]woff2[.]html;.woff2;gi" -i ${path}
+  sed "s;[.]ttf[.]html;.ttf;gi" -i ${path}
+  sed "s;[.]png[.]html;.png;gi" -i ${path}
+  sed "s;[.]svg[.]html;.svg;gi" -i ${path}
+  sed "s;[.]gif[.]html;.gif;gi" -i ${path}
+
+  # We need to fix 'sprite' lookups which have the form:
+  # /v3/animations/TPOfgJbbhT3urA-rYwkeIWlv0iKT6g_YbJM9RQYZWxs/0226a484-bc4a-4a82-b1f6-24bd014ed06a.png?version=nLn_XD0CYBhbZ1GMAgw8QidKxkO5eeET
+  # and replace it with something of the form:
+  # /v3/animations/TPOfgJbbhT3urA-rYwkeIWlv0iKT6g_YbJM9RQYZWxs/0226a484-bc4a-4a82-b1f6-24bd014ed06a.png-version-nLn_XD0CYBhbZ1GMAgw8QidKxkO5eeET
+  sed "s;png[?]version[=];png-version-;gi" -i ${path}
 
   # The video 'poster' has an absolute path and not picked up by the crawler
   sed "s;poster=\"/;poster=\";gi" -i ${path}
@@ -390,11 +404,10 @@ do
   # lists in the locale dropdown.
   if [[ -z "${LOCALES}" ]]; then
     SITE_LOCALES=`cat ${PREFIX}/../base_${LESSON}.html | grep -e "i18nDropdown\":" | grep -ohe "value%3D%22[^%]\+" | sed -u 's;value%3D%22;;'`
-    LOCALES=(${SITE_LOCALES})
 
     # Ensure that LOCALES is treated as an array and get the 'initial' locale as
     # the first item in that list.
-    LOCALES=(${LOCALES})
+    LOCALES=(${SITE_LOCALES})
     STARTING_LOCALE=${LOCALES[0]}
   fi
 
@@ -500,6 +513,7 @@ for locale in "${LOCALES[@]}"; do
 
     URLS=
     VIDEOS=
+    YT_URLS=
     for (( i=1; i<=${LEVELS}; i++ ))
     do
       path="${PREFIX}/s/${COURSE}/lessons/${LESSON}/levels/${i}.html"
@@ -513,13 +527,13 @@ for locale in "${LOCALES[@]}"; do
         URLS="${URLS} notes/${note}"
       fi
 
-      # This captures too much right now
-      #video=`grep ${path} -ohe "href\s*=\s*['\"][^'\"]\+['\"]" | cut -d '"' -f2 | sed -u "s;${VIDEO_DOMAIN}/;;" | sed -u "s;https://videos.code.org/;;"`
-      #if [[ ! -z "${video/$'\n'/}" ]]; then
-      #  echo "[FOUND] \`${video}\`"
-      #  VIDEOS="${VIDEOS} ${video}"
-      #  LOCAL_NOTES=1
-      #fi
+      # Find youtube links
+      path="${PREFIX}/s/${COURSE}/lessons/${LESSON}/levels/${i}.html"
+      videos=`grep ${path} -ohe "youtube.com/watch[^\")]\+"`
+      for yt_url in ${videos}; do
+        echo "[FOUND] \`${yt_url}\`"
+        YT_URLS="${YT_URLS} ${yt_url}"
+      done
     done
 
     # Videos
@@ -527,8 +541,7 @@ for locale in "${LOCALES[@]}"; do
     echo ""
     echo "Downloading any videos..."
 
-    for url in ${VIDEOS}
-    do
+    for url in ${VIDEOS}; do
       dir=$(dirname "${url}")
       filename=$(basename "${url}")
       mkdir -p ${PREFIX}/${dir}
@@ -538,6 +551,12 @@ for locale in "${LOCALES[@]}"; do
       fi
       download "-O videos/${dir}/${filename} -nc --tries=2" ${VIDEO_DOMAIN}/${dir}/${filename} "${PREFIX}/wget-videos.log"
       cp videos/${dir}/${filename} ${PREFIX}/${dir}/${filename}
+    done
+
+    for yt_url in ${YT_URLS}; do
+      download_youtube "${yt_url}"
+
+      YOUTUBE_VIDEOS="${video_id}=${video_url} ${YOUTUBE_VIDEOS}"
     done
 
     # Other dynamic content we want wholesale downloaded (transcripts for the videos)
@@ -968,11 +987,26 @@ do
     cat shims/shim.js ${js} > ${js}.new
 
     # Updates to add LOCALES
-    LOCALE_ARRAY="unk-unk"
+    LOCALE_ARRAY=
     for locale in "${LOCALES[@]}"; do
-      LOCALE_ARRAY="${locale}\", \"${LOCALE_ARRAY}"
+      if [[ -z "${YOUTUBE_VIDEOS_ARRAY}" ]]; then
+        LOCALE_ARRAY="${locale}"
+      else
+        LOCALE_ARRAY="${locale}\", \"${LOCALE_ARRAY}"
+      fi
     done
     sed "s;%LOCALES%;${LOCALE_ARRAY};" -i ${js}.new
+
+    # Updates to add YOUTUBE_VIDEOS
+    YOUTUBE_VIDEOS_ARRAY=
+    for yt_tuple in ${YOUTUBE_VIDEOS}; do
+      if [[ -z "${YOUTUBE_VIDEOS_ARRAY}" ]]; then
+        YOUTUBE_VIDEOS_ARRAY="${yt_tuple}"
+      else
+        YOUTUBE_VIDEOS_ARRAY="${yt_tuple}\", \"${YOUTUBE_VIDEOS_ARRAY}"
+      fi
+    done
+    sed "s;%YOUTUBE_VIDEOS%;${YOUTUBE_VIDEOS_ARRAY};" -i ${js}.new
 
     # Commit it
     mv ${js}.new ${js}

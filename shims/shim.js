@@ -1,6 +1,26 @@
 if (!window.__offline_replaced) {
   window.__offline_replaced = true;
+
+  // This is the User model info given to the front-end components via
+  // the 'users/current' api.
+  const DEFAULT_USER = {
+    is_signed_in: true,
+    username: "student",
+    user_type: "student",
+    id: 100000000,
+    short_name: "student",
+    is_verified_instructor: false,
+    under_13: false
+  };
+
+  // This is replaced by the crawler to a listing of all crawled locales
   const LOCALES = ["%LOCALES%"];
+
+  // This is replaced by the crawler to a mapping of youtube IDs to local
+  // video files so that such links can be replaced with embedded video players.
+  // It will be in the form of "id=path" where 'id' is the youtube video id and
+  // path is the video file.
+  const YOUTUBE_VIDEOS = ["%YOUTUBE_VIDEOS%"];
 
   // Get current locale
   window.__locale = "en-US";
@@ -73,10 +93,8 @@ if (!window.__offline_replaced) {
         call = args[1];
         args = args.slice(1);
 
-        if (call === "users" && args[1] === "current") {
-          response = {
-            is_signed_in: false
-          };
+        if (call === "users" && (args[1] === "current" || args[1] === "current.json")) {
+          response = DEFAULT_USER;
         }
       }
       else if (call === "example_solutions") {
@@ -105,7 +123,7 @@ if (!window.__offline_replaced) {
         // Default response (on initial load)
         let date = (new Date()).toISOString();
         response = {
-          "hidden": true,
+          "hidden": false,
           "createdAt": date,
           "updatedAt": date,
           "id": args[1],
@@ -678,6 +696,25 @@ if (!window.__offline_replaced) {
     if (url[0] === "/") {
       url = "../../../../.." + url;
     }
+
+    response = null;
+    if (url.startsWith("../../../../../api/")) {
+      path = url.substring("../../../../../api/".length);
+      response = callApi("GET", path);
+    }
+
+    // API calls can also come in at these '/v3/' paths
+    if (url.startsWith("../../../../../v3/")) {
+      path = url.substring("../../../../../v3/".length);
+      response = callApi("GET", path);
+    }
+
+    if (response) {
+      return new Promise( (resolve, reject) => {
+        resolve(new Response(JSON.stringify(response)));
+      });
+    }
+
     return oldFetch(url, options);
   };
 
