@@ -1,5 +1,6 @@
 # Computer Science Principles - Unit 5 - 2022
 
+WARN=1
 NAME="Computer Science Principles 2022 - Unit 5 - Lists, Loops, and Traversals"
 DESCRIPTION="This unit introduces lists, loops, and traversals, and explores the way they can be used to build apps that store and process large amounts of information. Learn to program with the data library in App Lab and complete a 5-day hackathon project at the end of the unit where you can design a program about any topic of your choosing."
 

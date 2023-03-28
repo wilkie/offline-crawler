@@ -1,5 +1,6 @@
 # Computer Science Principles - Unit 4 - 2022
 
+WARN=1
 NAME="Computer Science Principles 2022 - Unit 4 - Variables, Conditionals, and Functions"
 DESCRIPTION="This unit explores how variables, conditionals, and functions allow for the design of increasingly complex apps. Learn how to program with these three new concepts through a sequence of collaborative activities. Then build your own decision maker app to share with friends and help them make a decision."
 

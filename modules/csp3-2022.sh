@@ -1,5 +1,6 @@
 # Computer Science Principles - Unit 3 - 2022
 
+WARN=1
 NAME="Computer Science Principles 2022 - Unit 3 - Intro to App Design"
 DESCRIPTION="This unit is an introduction to programming and app design with a heavy focus on important skills like debugging, pair programming, and user testing. Learn how to design user interfaces and write event-driven programs in App Lab and then design a project that teaches your classmates about a topic of your choosing."
 

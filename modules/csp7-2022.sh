@@ -1,5 +1,6 @@
 # Computer Science Principles - Unit 7 - 2022
 
+WARN=1
 NAME="Computer Science Principles 2022 - Unit 7 - Parameters, Return, and Libraries"
 DESCRIPTION="This unit introduces parameters, return, and libraries. Learn how to use these concepts to build new kinds of apps as well as libraries of code that you can share with your classmates. End the unit by designing a library of functions around any topic of your choosing."
 

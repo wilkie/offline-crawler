@@ -1,5 +1,6 @@
 # Computer Science Principles - Unit 8 - 2022
 
+WARN=1
 NAME="Computer Science Principles 2022 - Unit 8 - Create PT Prep"
 DESCRIPTION="In this unit prepare for, and do the AP Create Performance Task. Each lesson contains links to helpful documents and activities to help you understand the task and develop a plan for completing it."
 

@@ -1,5 +1,6 @@
 # Computer Science Principles - Unit 11 - 2022
 
+WARN=1
 NAME="Computer Science Principles 2022 - Unit 11 - CS Principles Post-Course Survey"
 DESCRIPTION="This unit contains the CS Principles Post-Course Survey."
 

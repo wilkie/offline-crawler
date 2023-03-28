@@ -45,6 +45,15 @@ else
   exit 1
 fi
 
+if [[ ! -z "${WARN}" ]]; then
+  if [[ -z "${DO_ANYWAY}" ]]; then
+    echo "Error: This module is currently not working for offline. (WARN=1)"
+    echo "       To produce anyway, set the environment variable DO_ANYWAY"
+    echo "Usage: DO_ANYWAY=1 ./package.sh \${MODULE}"
+    exit 1
+  fi
+fi
+
 # Where the code-dot-org repo is (for copying static assets more quickly)
 if [[ -z "${CODE_DOT_ORG_REPO_PATH}" ]]; then
   CODE_DOT_ORG_REPO_PATH=${ROOT_PATH}/../code-dot-org
