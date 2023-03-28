@@ -24,6 +24,12 @@ fi
 # Gather the version and URLs for third-party tools
 source ${ROOT_PATH}/VERSIONS.sh
 
+# If LESSON is specified into this script, we are creating a lesson module from
+# a whole course
+if [[ ! -z "${LESSON}" ]]; then
+  PARTIAL=${LESSON}
+fi
+
 # Negotiate the module requested
 if [ -f ${ROOT_PATH}/modules/${MODULE}.sh ]; then
   source ${ROOT_PATH}/modules/${MODULE}.sh
@@ -54,10 +60,23 @@ fi
 
 # Determine the URLs that we will crawl. If USE_REMOTE is set, it crawls the
 # production site instead of a development instance.
+if [[ -z "${DOMAIN_PREFIX}" ]]; then
+  DOMAIN_PREFIX="localhost"
+fi
+
+if [[ -z "${PORT}" ]]; then
+  PORT="3000"
+fi
+
 if [[ -z "${USE_REMOTE}" ]]; then
-  STUDIO_DOMAIN=http://localhost-studio.code.org:3000
-  MAIN_DOMAIN=http://localhost.code.org:3000
-  DOMAINS=localhost-studio.code.org,localhost.code.org
+  if [[ "${PORT}" != "80" ]]; then
+    STUDIO_DOMAIN=http://${DOMAIN_PREFIX}-studio.code.org:${PORT}
+    MAIN_DOMAIN=http://${DOMAIN_PREFIX}.code.org:${PORT}
+  else
+    STUDIO_DOMAIN=http://${DOMAIN_PREFIX}-studio.code.org
+    MAIN_DOMAIN=http://${DOMAIN_PREFIX}.code.org
+  fi
+  DOMAINS=${DOMAIN_PREFIX}-studio.code.org,${DOMAIN_PREFIX}.code.org
   EXCLUDE_DOMAINS=curriculum.code.org,studio.code.org,videos.code.org
   BASE_STUDIO_DOMAIN=${STUDIO_DOMAIN:5}
   BASE_MAIN_DOMAIN=${MAIN_DOMAIN:5}
@@ -78,6 +97,7 @@ IMAGE_DOMAIN=http://images.code.org
 VIDEO_SSL_DOMAIN=https://videos.code.org
 IMAGE_SSL_DOMAIN=https://images.code.org
 TTS_DOMAIN=https://tts.code.org
+LESSON_PLAN_DOMAIN=https://lesson-plans.code.org
 
 # Some links are in the form `//localhost-studio.code.org:3000`, etc
 BASE_CURRICULUM_DOMAIN=${CURRICULUM_DOMAIN:6}
@@ -91,6 +111,12 @@ mkdir -p build
 # The build directory will have a `tmp` path which contains the pages
 # 'in-flight' before they are placed in locale-specific places.
 BUILD_DIR=${COURSE}
+
+# If we are building just one lesson of the course module, augment the build dir
+if [[ ! -z ${PARTIAL} ]]; then
+  BUILD_DIR=${BUILD_DIR}-${LESSON}
+fi
+
 PREFIX=build/${BUILD_DIR}/tmp
 
 # The shared directory for common assets
@@ -131,6 +157,7 @@ fi
 # The 'LOCALE' variable specifically crawls just one locale. So, it
 # overrides the locale list.
 if [[ ! -z "${LOCALE}" ]]; then
+  LOCALE=${LOCALE//_/-}
   LOCALES=${LOCALE}
 fi
 
@@ -290,6 +317,7 @@ fixup() {
 
   # Ensure that references to the main domain are also relative links
   sed "s;${MAIN_DOMAIN};${replace};gi" -i ${path}
+  sed "s;http:${BASE_MAIN_DOMAIN};${replace};gi" -i ${path}
   sed "s;${BASE_MAIN_DOMAIN};${replace};gi" -i ${path}
 
   # Ensure that references to the curriculum domain are also relative links
@@ -328,6 +356,17 @@ fixup() {
   sed "s;[.]svg[.]html;.svg;gi" -i ${path}
   sed "s;[.]gif[.]html;.gif;gi" -i ${path}
 
+  # Repair any unaltered footer links
+  sed "s;privacy\";privacy.html\";gi" -i ${path}
+  sed "s;tos\";tos.html\";gi" -i ${path}
+
+  # Fix links to extra levels to point to the levels path
+  # (We assume all level content is nested at a certain directory depth)
+  # (That is, /s/lessons/2/levels/1.html, so extras need to move from
+  # /s/lessons/2/extras?level_name-etc.html to that path)
+  sed "s;\/extras;\/levels\/extras;g" -i ${path}
+  sed "s;\/extras?level_name=;\/extras-level_name-;g" -i ${path}
+
   # We need to fix 'sprite' lookups which have the form:
   # /v3/animations/TPOfgJbbhT3urA-rYwkeIWlv0iKT6g_YbJM9RQYZWxs/0226a484-bc4a-4a82-b1f6-24bd014ed06a.png?version=nLn_XD0CYBhbZ1GMAgw8QidKxkO5eeET
   # and replace it with something of the form:
@@ -361,7 +400,15 @@ fixup() {
 
   # Do so for 'src' attributes embedded into things like JavaScript sometimes
   # e.g. the download_button.png image for videos is generated on the fly.
-  sed "s;src=\"/\([^\"]\+[^/\"]\);src=\"${replace}/\1.html;gi" -i ${path}
+  sed "s;src=\"/\([^\"]\+[^/\"]\);src=\"${replace}/\1;gi" -i ${path}
+
+  # Fix any absolute stylesheets that still exist
+  sed "s;href=\"/\([^\"]\+[^/\"]\).css;href=\"${replace}/\1.css;gi" -i ${path}
+
+  # Just fix any locale specific urls
+  if [[ ! -z ${replace_locale} ]]; then
+    sed "s;\/s\/;\/s-${replace_locale}\/;g" -i ${path}
+  fi
 }
 
 # Determine if this is a full Course (multiple lessons) or a single Lesson
@@ -369,6 +416,7 @@ fixup() {
 # number of lessons and iterate
 IS_COURSE=
 if [[ ! -z "${LESSON}" ]]; then
+  # Ensure we crawl just the one lesson and not the entire course
   LESSONS=${LESSON}
 else
   # Crawl Course page
@@ -387,6 +435,31 @@ else
   fixup "${PREFIX}/privacy.html" "."
 
   echo ""
+
+  # However, if we are marking this 'PARTIAL', we actually want to re-run this
+  # script on each lesson so it modularizes them all. Each lesson will become
+  # its own module.
+
+  if [[ ! -z "${PARTIAL}" ]]; then
+    echo "Crawling each lesson as a module (PARTIAL is set)"
+    echo ""
+
+    # Delete the temp path
+    if [[ -d ${ROOT_PATH}/build/${BUILD_DIR} ]]; then
+      rm -rf ${ROOT_PATH}/build/${BUILD_DIR}
+    fi
+
+    for LESSON in ${LESSONS}
+    do
+      echo "Crawling lesson ${LESSON} as a module."
+      echo ""
+      LESSON="${LESSON}" ${ROOT_PATH}/package.sh $@
+    done
+
+    echo ""
+    echo "Done."
+    exit 0
+  fi
 fi
 
 FINISH_LINK=
@@ -403,12 +476,40 @@ do
   # However, if nothing is specified, all locales are downloaded that the site
   # lists in the locale dropdown.
   if [[ -z "${LOCALES}" ]]; then
+    echo "Determining locales..."
+
+    # Look at the i18nDropdown JSON object
     SITE_LOCALES=`cat ${PREFIX}/../base_${LESSON}.html | grep -e "i18nDropdown\":" | grep -ohe "value%3D%22[^%]\+" | sed -u 's;value%3D%22;;'`
+
+    if [[ -z ${SITE_LOCALES} ]]; then
+      # Look at the actual locale dropdown if the static one exists
+      SITE_LOCALES=`cat ${PREFIX}/../base_${LESSON}.html | grep -e "id\s*=\s*\"locale\"" -A100 | grep -oe "value\s*=\s*\"[^\"]\+" | sed -u 's;value\s*=\s*";;'`
+
+      # Get the default locale (probably en_US, but who knows)
+      STARTING_LOCALE=`cat ${PREFIX}/../base_${LESSON}.html | grep -e "id\s*=\s*\"locale\"" -A100 | grep -e "selected" | grep -oe "value\s*=\s*\"[^\"]\+" | sed -u 's;value\s*=\s*";;'`
+    fi
+
+    # If all else fails, just get the English version
+    if [[ -z ${SITE_LOCALES} ]]; then
+      SITE_LOCALES="en-US"
+    fi
+
+    # Replace _ with - (we do both, sigh)
+    SITE_LOCALES=${SITE_LOCALES//_/-}
 
     # Ensure that LOCALES is treated as an array and get the 'initial' locale as
     # the first item in that list.
     LOCALES=(${SITE_LOCALES})
-    STARTING_LOCALE=${LOCALES[0]}
+
+    # Get the default locale, if we didn't get it specifically above, as the
+    # first locale in the list. This is the locale the module will initially
+    # load.
+    if [[ -z ${STARTING_LOCALE} ]]; then
+      STARTING_LOCALE=${LOCALES[0]}
+    fi
+
+    # Tell us what we found
+    echo "Packaging locales: ${LOCALES[@]}"
   fi
 
   # Determine the number of levels
@@ -436,6 +537,40 @@ do
   do
     LEVEL_URLS="${LEVEL_URLS}${STUDIO_DOMAIN}/s/${COURSE}/lessons/${LESSON}/levels/${i} "
   done
+
+  # Determine if we have any 'extra' levels
+  EXTRAS_LINK=`grep -ohe "lesson_extras_level_url\"\s*:\s*\"[^\"]\+" ${PREFIX}/../base_${LESSON}.html | sed -u "s;lesson_extras_level_url\"\s*:\s*\";;"`
+
+  # Add the 'extras' page to the mix
+  if [[ ! -z "${EXTRAS_LINK}" ]]; then
+    echo "Found 'extras' link."
+    LEVEL_URLS="${LEVEL_URLS}${EXTRAS_LINK} "
+
+    # We will want to crawl the extras page for the actual levels
+    download "-O ${PREFIX}/../base_${LESSON}_extras.html -nc" "${EXTRAS_LINK}" "${PREFIX}/wget-levels-extra.log"
+
+    # Look at the level data and pull those extra levels out
+    # We get tuples of 'id' and 'url' for extra levels with '~' in between
+    EXTRAS_LEVEL_TUPLES=`grep "${PREFIX}/../base_${LESSON}_extras.html" -e "data-extras" | grep -ohe "id\"\s*:\s*\"[^\"]\+[^}]\+url\"\s*:\s*\"[^\"]\+" | sed -u "s;id\"\s*:\s*\";;" | sed -u "s;^\([^\"]\+\).\+\"url\"\s*:\s*\"//studio.code.org/;\1~;"`
+    EXTRAS_LEVEL_TUPLES=(${EXTRAS_LEVEL_TUPLES})
+
+    # For each of these, tease them out for EXTRAS_LEVEL_IDS
+    EXTRAS_LEVEL_URLS=
+    EXTRAS_LEVEL_IDS=
+    for extras_level_tuple in "${EXTRAS_LEVEL_TUPLES[@]}"; do
+      # Split by '~' and gather the id and url for each extra level
+      tuple_parts=(${extras_level_tuple//\~/ })
+      extras_level_id=${tuple_parts[0]}
+      extras_level_url="${STUDIO_DOMAIN}/${tuple_parts[1]}"
+      EXTRAS_LEVEL_IDS="${EXTRAS_LEVEL_IDS}${extras_level_id} "
+      EXTRAS_LEVEL_URLS="${EXTRAS_LEVEL_URLS}${extras_level_url} "
+    done
+
+    # Add extra levels to our crawled levels
+    LEVEL_URLS="${LEVEL_URLS}${EXTRAS_LEVEL_URLS} "
+    EXTRAS_LEVEL_URLS=(${EXTRAS_LEVEL_URLS})
+    EXTRAS_LEVEL_IDS=(${EXTRAS_LEVEL_IDS})
+  fi
 
   # If we haven't pulled this via the course page, pull the privacy/tos pages too
   if [[ -z "${IS_COURSE}" ]]; then
@@ -471,6 +606,61 @@ for locale in "${LOCALES[@]}"; do
     echo "Fixing up privacy/tos pages..."
     fixup "${PREFIX}/tos.html" "."
     fixup "${PREFIX}/privacy.html" "."
+  fi
+
+  # Extra levels are special. They need to be in the same path as other levels
+  # so they reach common assets the same way. So, they are moved.
+  #
+  # They are often accessed via query parameters, so the files are renamed to
+  # reflect those parameters since there is no server in the background that can
+  # understand that. This also involves changing the urls to update the '?' and
+  # '=', etc, to simple '-' characters.
+  #
+  # The 'URL' for an extra level is expressed two different ways, unfortunately.
+  # The first is the URL given by the bonus level specifically which is marked by
+  # the level name. The other is a URL where it is specified by the level id. We
+  # must support the use of both of those.
+  if [[ ! -z "${EXTRAS_LINK}" ]]; then
+    echo ""
+    echo "Fixing up extra levels..."
+
+    extras_path=`echo "${EXTRAS_LINK}" | sed -u "s;http[s]\?:${BASE_STUDIO_DOMAIN}\/;;"`
+    extras_path="${extras_path}.html"
+
+    dir=$(dirname "${extras_path}")
+    filename=$(basename "${extras_path}")
+    echo "[MOVE] ${extras_path} -> ${dir}/levels/${filename}"
+    mv ${PREFIX}/${extras_path} ${PREFIX}/${dir}/levels/${filename}
+    sed 's;../../../..;;' -i ${PREFIX}/${dir}/levels/${filename}
+    fixup "${PREFIX}/${dir}/levels/${filename}" "../../../../.."
+
+    # For every extras level known, fix it up
+    EXTRAS_LEVEL_FILENAMES=
+    for k in "${!EXTRAS_LEVEL_URLS[@]}"; do 
+      extras_url=${EXTRAS_LEVEL_URLS[${k}]}
+      extras_id=${EXTRAS_LEVEL_IDS[${k}]}
+      extras_path=`echo "${extras_url}" | sed -u "s;http[s]\?:${BASE_STUDIO_DOMAIN}\/;;"`
+      extras_path="${extras_path}.html"
+      if [[ -e "${PREFIX}/${extras_path}" ]]; then
+        dir=$(dirname "${extras_path}")
+        filename=$(basename "${extras_path}")
+
+        # Replace any '?' or '=' with '-'
+        filename=${filename//\?/-}
+        filename=${filename//\=/-}
+
+        # Move the extras html page to the proper nesting (matches other levels)
+        # and remove any special characters from the filename
+        # (the page fixup() function fixes links to reflect the changed filename
+        # and path)
+        echo "[MOVE] ${extras_path} -> ${dir}/levels/${filename}"
+        mv ${PREFIX}/${extras_path} ${PREFIX}/${dir}/levels/${filename}
+        sed 's;../../../..;;' -i ${PREFIX}/${dir}/levels/${filename}
+
+        EXTRAS_LEVEL_FILENAMES="${EXTRAS_LEVEL_FILENAMES}${filename} "
+      fi
+    done
+    EXTRAS_LEVEL_FILENAMES=(${EXTRAS_LEVEL_FILENAMES})
   fi
 
   echo ""
@@ -514,22 +704,36 @@ for locale in "${LOCALES[@]}"; do
     URLS=
     VIDEOS=
     YT_URLS=
-    for (( i=1; i<=${LEVELS}; i++ ))
-    do
-      path="${PREFIX}/s/${COURSE}/lessons/${LESSON}/levels/${i}.html"
-      video=`grep ${path} -ohe "data-download\s*=\s*['\"][^'\"]\+['\"]" | cut -d '"' -f2 | sed -u "s;${VIDEO_DOMAIN}/;;" | sed -u "s;https://videos.code.org/;;"`
+    # Look at every level html file
+    LEVEL_PATHS=`ls ${PREFIX}/s/${COURSE}/lessons/${LESSON}/levels/*.html`
+    for level_path in ${LEVEL_PATHS}; do
+      # Find popup videos by their download links
+      video=`grep ${level_path} -ohe "data-download\s*=\s*['\"][^'\"]\+['\"]" | cut -d '"' -f2 | sed -u "s;${VIDEO_DOMAIN}/;;" | sed -u "s;https://videos.code.org/;;"`
       if [[ ! -z "${video/$'\n'/}" ]]; then
         echo "[FOUND] \`${video}\`"
         VIDEOS="${VIDEOS} ${video}"
 
-        note=`grep ${path} -ohe "data-key\s*=\s*['\"][^'\"]\+['\"]" | cut -d '"' -f2`
+        note=`grep ${level_path} -ohe "data-key\s*=\s*['\"][^'\"]\+['\"]" | cut -d '"' -f2`
         echo "[FOUND] \`notes/${note}\`"
         URLS="${URLS} notes/${note}"
       fi
 
+      # Find youtube embed videos by their signature
+      video=`grep ${level_path} -ohe "data-videooptions\s*=\s*['\"].\+\"download\"\s*:\s*\"[^\"]\+" | sed -u 's;^data-videooptions.\+download\s*\":\"/\?;;' | sed -u 's;https://videos.code.org/;;'`
+      if [[ ! -z "${video/$'\n'/}" ]]; then
+        echo "[FOUND] \`${video}\`"
+        VIDEOS="${VIDEOS} ${video}"
+      fi
+
+      # Also find thumbnails
+      asset=`grep ${level_path} -ohe "data-videooptions\s*=\s*['\"].\+\"thumbnail\"\s*:\s*\"[^\"]\+" | sed -u 's;^data-videooptions.\+thumbnail\s*\":\"/\?;;'`
+      if [[ ! -z "${asset/$'\n'/}" ]]; then
+        echo "[FOUND] \`${asset}\`"
+        URLS="${URLS} ${asset}"
+      fi
+
       # Find youtube links
-      path="${PREFIX}/s/${COURSE}/lessons/${LESSON}/levels/${i}.html"
-      videos=`grep ${path} -ohe "youtube.com/watch[^\")]\+"`
+      videos=`grep ${level_path} -ohe "youtube.com/watch[^\")]\+"`
       for yt_url in ${videos}; do
         echo "[FOUND] \`${yt_url}\`"
         YT_URLS="${YT_URLS} ${yt_url}"
@@ -607,10 +811,9 @@ for locale in "${LOCALES[@]}"; do
       download "--reject-regex=\"[.]dmg$|[.]exe$|[.]mp4$\" --exclude-domains=videos.code.org -nc -O ${PREFIX}/${dir}/${filename}" ${STUDIO_DOMAIN}/${url} "${PREFIX}/wget-assets.log"
     done
 
-    for (( i=1; i<=${LEVELS}; i++ ))
-    do
-      path="${PREFIX}/s/${COURSE}/lessons/${LESSON}/levels/${i}.html"
-      ASSETS=`grep ${path} -ohe "appOptions\s*=\s*\({.\+\)\s*;\s*$" | sed -u "s;appOptions\s*=\s*;;" | sed -u "s/;$//" | grep -ohe "http[s]://[^ )\\\\\"\']\+"`
+    LEVEL_PATHS=`ls ${PREFIX}/s/${COURSE}/lessons/${LESSON}/levels/*.html`
+    for level_path in ${LEVEL_PATHS}; do
+      ASSETS=`grep ${level_path} -ohe "appOptions\s*=\s*\({.\+\)\s*;\s*$" | sed -u "s;appOptions\s*=\s*;;" | sed -u "s/;$//" | grep -ohe "http[s]://[^ )\\\\\"\']\+"`
 
       for url in ${ASSETS}
       do
@@ -626,8 +829,7 @@ for locale in "${LOCALES[@]}"; do
       done
 
       # Gather helper libraries
-      path="${PREFIX}/s/${COURSE}/lessons/${LESSON}/levels/${i}.html"
-      ASSETS=`grep ${path} -ohe "helperLibraries\"\s*:\s*\[[^]]\+\]" | cut -d ":" -f2 | sed -u "s;\[\|\"\|\];;g" | sed -u "s;,; ;g"`
+      ASSETS=`grep ${level_path} -ohe "helperLibraries\"\s*:\s*\[[^]]\+\]" | cut -d ":" -f2 | sed -u "s;\[\|\"\|\];;g" | sed -u "s;,; ;g"`
       for url in ${ASSETS}
       do
         LIBRARIES="${LIBRARIES} ${url}"
@@ -635,8 +837,7 @@ for locale in "${LOCALES[@]}"; do
 
       # Gather static assets from the base html, too
       # These are any api urls of the form \"/api/v1/etc\"
-      path="${PREFIX}/s/${COURSE}/lessons/${LESSON}/levels/${i}.html"
-      ASSETS=`grep ${path} -ohe "[\]\"/api/v1/[^\"]\+[\]\"" | sed -u "s;[\]\"/\?;;g"`
+      ASSETS=`grep ${level_path} -ohe "[\]\"/api/v1/[^\"]\+[\]\"" | sed -u "s;[\]\"/\?;;g"`
       for url in ${ASSETS}
       do
         dir=$(dirname "${url}")
@@ -648,8 +849,7 @@ for locale in "${LOCALES[@]}"; do
 
       # wget does not find stylesheets that are in <link> tags inside the <body>
       # ... mostly because that makes such little sense.
-      path="${PREFIX}/s/${COURSE}/lessons/${LESSON}/levels/${i}.html"
-      ASSETS=`grep ${path} -e "<[lL][iI][nN][kK].\+[hH][rR][eE][fF]\s*=\s*\"/" | grep -ohe "[hH][rR][eE][fF]\s*=\s*\"[^\"]\+" | sed -u "s;[hH][rR][eE][fF]\s*=\s*\"/;;"`
+      ASSETS=`grep ${level_path} -e "<[lL][iI][nN][kK].\+[hH][rR][eE][fF]\s*=\s*\"/" | grep -ohe "[hH][rR][eE][fF]\s*=\s*\"[^\"]\+" | sed -u "s;[hH][rR][eE][fF]\s*=\s*\"/;;"`
       for url in ${ASSETS}
       do
         dir=$(dirname "${url}")
@@ -659,8 +859,7 @@ for locale in "${LOCALES[@]}"; do
         download_shared "--reject-regex=\"[.]dmg$|[.]exe$|[.]mp4$\" --exclude-domains=videos.code.org" ${STUDIO_DOMAIN}/${url} "${PREFIX}/wget-assets.log"
       done
 
-      path="${PREFIX}/s/${COURSE}/lessons/${LESSON}/levels/${i}.html"
-      ASSETS=`grep ${path} -e "<[lL][iI][nN][kK].\+[hH][rR][eE][fF]\s*=\s*\"${STUDIO_DOMAIN}" | grep -ohe "[hH][rR][eE][fF]\s*=\s*\"[^\"]\+" | sed -u "s;[hH][rR][eE][fF]\s*=\s*\"${STUDIO_DOMAIN}/;;"`
+      ASSETS=`grep ${level_path} -e "<[lL][iI][nN][kK].\+[hH][rR][eE][fF]\s*=\s*\"${STUDIO_DOMAIN}" | grep -ohe "[hH][rR][eE][fF]\s*=\s*\"[^\"]\+" | sed -u "s;[hH][rR][eE][fF]\s*=\s*\"${STUDIO_DOMAIN}/;;"`
       for url in ${ASSETS}
       do
         domain=`echo ${url} | sed -u "s;http[s]\?://\([^/]\+\).\+;\1;"`
@@ -673,10 +872,9 @@ for locale in "${LOCALES[@]}"; do
       done
 
       # Get ID of application this level represents ('craft', 'dance', etc)
-      path="${PREFIX}/s/${COURSE}/lessons/${LESSON}/levels/${i}.html"
-      APP_ID=`grep ${path} -ohe "app\s*:\s*['\"][a-z][a-z][^\"']*['\"]" | sed -u "s;app\s*:\s*['\"]\([^'\"]\+\)['\"];\1;" | tail -n1`
+      APP_ID=`grep ${level_path} -ohe "app\s*:\s*['\"][a-z][a-z][^\"']*['\"]" | sed -u "s;app\s*:\s*['\"]\([^'\"]\+\)['\"];\1;" | tail -n1`
       if [ ! -z "${APP_ID}" ]; then
-        echo "[DETECTED] Found '${APP_ID}' app via ${path}"
+        echo "[DETECTED] Found '${APP_ID}' app via ${level_path}"
 
         # We probably want the skins and media paths for this app type
         if [ -d "${CODE_DOT_ORG_REPO_PATH}/dashboard/public/blockly/media/${APP_ID}" ]; then
@@ -688,10 +886,9 @@ for locale in "${LOCALES[@]}"; do
       fi
 
       # Get Skin, if any
-      path="${PREFIX}/s/${COURSE}/lessons/${LESSON}/levels/${i}.html"
-      SKIN_ID=`grep ${path} -ohe "skin['\"]\s*:\s*['\"][a-z][a-z][^\"']*['\"]" | sed -u "s;skin['\"]\s*:\s*['\"]\([^'\"]\+\)['\"];\1;" | tail -n1`
+      SKIN_ID=`grep ${level_path} -ohe "skin['\"]\s*:\s*['\"][a-z][a-z][^\"']*['\"]" | sed -u "s;skin['\"]\s*:\s*['\"]\([^'\"]\+\)['\"];\1;" | tail -n1`
       if [ ! -z "${SKIN_ID}" ]; then
-        echo "[DETECTED] Found '${SKIN_ID}' skin via ${path}"
+        echo "[DETECTED] Found '${SKIN_ID}' skin via ${level_path}"
 
         # Gather static path
         if [ -d "${CODE_DOT_ORG_REPO_PATH}/dashboard/public/blockly/media/skins/${SKIN_ID}" ]; then
@@ -716,10 +913,9 @@ for locale in "${LOCALES[@]}"; do
     fi
 
     # Individual fix-ups
-    for (( i=1; i<=${LEVELS}; i++ ))
-    do
-      path="${PREFIX}/s/${COURSE}/lessons/${LESSON}/levels/${i}.html"
-      FIXUP_PATHS="${FIXUP_PATHS} ${path}"
+    LEVEL_PATHS=`ls ${PREFIX}/s/${COURSE}/lessons/${LESSON}/levels/*.html`
+    for level_path in ${LEVEL_PATHS}; do
+      FIXUP_PATHS="${FIXUP_PATHS} ${level_path}"
     done
 
     # Just go ahead and fixup the finish link page
@@ -752,21 +948,13 @@ for locale in "${LOCALES[@]}"; do
   done
 
   echo ""
-  echo "Fixing links in pages..."
-
-  for path in ${FIXUP_PATHS}
-  do
-    fixup ${path} "../../../../.." ${locale}
-  done
-
-  echo ""
   echo "Gathering assets from css..."
 
   # Gather assets from CSS
   CSS=`ls ${PREFIX}/assets/css/*.css`
   for css in ${CSS}
   do
-    ASSETS=`grep ${css} -e "url(\"${STUDIO_DOMAIN}" | grep -ohe "url(\"${STUDIO_DOMAIN}[^\"]\+" | sed -u "s;url(\"${STUDIO_DOMAIN}/;;"`
+    ASSETS=`grep ${css} -e "url([\"]\?${STUDIO_DOMAIN}" | grep -ohe "url([\"]\?${STUDIO_DOMAIN}[^\")]\+" | sed -u "s;url([\"]\?${STUDIO_DOMAIN}/;;"`
     for url in ${ASSETS}
     do
       domain=`echo ${url} | sed -u "s;http[s]\?://\([^/]\+\).\+;\1;"`
@@ -777,6 +965,30 @@ for locale in "${LOCALES[@]}"; do
       mkdir -p ${PREFIX}/${dir}
       download_shared "--reject-regex=\"[.]dmg$|[.]exe$|[.]mp4$\" --exclude-domains=videos.code.org" ${STUDIO_DOMAIN}/${url} "${PREFIX}/wget-assets.log"
     done
+
+    # Also grab any relative resources. These are relative to the CSS file,
+    # annoyingly. For some reason, they are not picked up by wget.
+    ASSETS=`grep ${css} -oe "url([\"]\?[.][.][^)]\+" | sed -u 's;url([\"]\?;;'`
+    echo "${css}"
+    echo "${ASSETS}"
+    for relative_url in ${ASSETS}
+    do
+      path="assets/css/${relative_url}"
+      url=${path}
+      dir=$(dirname "${path}")
+      filename=$(basename "${path}")
+
+      mkdir -p ${PREFIX}/${dir}
+      download_shared "--reject-regex=\"[.]dmg$|[.]exe$|[.]mp4$\" --exclude-domains=videos.code.org" ${STUDIO_DOMAIN}/${url} "${PREFIX}/wget-assets.log"
+    done
+  done
+
+  echo ""
+  echo "Fixing links in pages..."
+
+  for path in ${FIXUP_PATHS}
+  do
+    fixup ${path} "../../../../.." ${locale}
   done
 
   # Copy over webpacked chunks
@@ -989,7 +1201,7 @@ do
     # Updates to add LOCALES
     LOCALE_ARRAY=
     for locale in "${LOCALES[@]}"; do
-      if [[ -z "${YOUTUBE_VIDEOS_ARRAY}" ]]; then
+      if [[ -z "${LOCALE_ARRAY}" ]]; then
         LOCALE_ARRAY="${locale}"
       else
         LOCALE_ARRAY="${locale}\", \"${LOCALE_ARRAY}"
@@ -1007,6 +1219,21 @@ do
       fi
     done
     sed "s;%YOUTUBE_VIDEOS%;${YOUTUBE_VIDEOS_ARRAY};" -i ${js}.new
+
+    # Updates to add EXTRA_LEVELS
+    EXTRA_LEVELS_ARRAY=
+    for k in "${!EXTRAS_LEVEL_URLS[@]}"; do 
+      extras_path=${EXTRAS_LEVEL_FILENAMES[${k}]}
+      extras_id=${EXTRAS_LEVEL_IDS[${k}]}
+      extras_level_tuple="${extras_id}=${extras_path}"
+
+      if [[ -z "${EXTRA_LEVELS_ARRAY}" ]]; then
+        EXTRA_LEVELS_ARRAY="${extras_level_tuple}"
+      else
+        EXTRA_LEVELS_ARRAY="${extras_level_tuple}\", \"${EXTRA_LEVELS_ARRAY}"
+      fi
+    done
+    sed "s;%EXTRA_LEVELS%;${EXTRA_LEVELS_ARRAY};" -i ${js}.new
 
     # Commit it
     mv ${js}.new ${js}

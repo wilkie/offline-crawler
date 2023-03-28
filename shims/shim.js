@@ -22,6 +22,13 @@ if (!window.__offline_replaced) {
   // path is the video file.
   const YOUTUBE_VIDEOS = ["%YOUTUBE_VIDEOS%"];
 
+  // This helps us map extra levels by id to their given URL.
+  // This will be in the form of "id=url" where id is the level id and url is
+  // the given URL that was crawled for the extra level. We want to capture
+  // links to bonus levels on the extras page and redirect to the appropriate
+  // URL.
+  const EXTRA_LEVELS = ["%EXTRA_LEVELS%"];
+
   // Get current locale
   window.__locale = "en-US";
   let dropdown = document.querySelector('select#locale');
@@ -86,7 +93,12 @@ if (!window.__offline_replaced) {
       console.log("[api]", path);
       if (call === "user_progress") {
         response = {
-          signedIn: false
+          data: {
+            signedIn: false
+          },
+          headers: {
+            "content-type": "application/json"
+          }
         };
       }
       else if (call === "v1") {
@@ -94,20 +106,43 @@ if (!window.__offline_replaced) {
         args = args.slice(1);
 
         if (call === "users" && (args[1] === "current" || args[1] === "current.json")) {
-          response = DEFAULT_USER;
+          response = {
+            data: DEFAULT_USER,
+            headers: {
+              "content-type": "application/json"
+            }
+          };
+        }
+        else {
+          console.log("[api] WARNING: unimplemented v1 api call:", call, args);
         }
       }
       else if (call === "example_solutions") {
-        response = [];
+        response = {
+          data: [],
+          headers: {
+            "content-type": "application/json"
+          }
+        };
       }
       else if (call === "hidden_lessons") {
-        response = [];
+        response = {
+          data: [],
+          headers: {
+            "content-type": "application/json"
+          }
+        };
       }
       else if (call === "user_app_options") {
         response = {
-          signedIn: false,
-          channel: "blah",
-          reduceChannelUpdates: false
+          data: {
+            signedIn: false,
+            channel: "blah",
+            reduceChannelUpdates: false
+          },
+          headers: {
+            "content-type": "application/json"
+          }
         };
       }
       else if (call === "channels") {
@@ -123,30 +158,35 @@ if (!window.__offline_replaced) {
         // Default response (on initial load)
         let date = (new Date()).toISOString();
         response = {
-          "hidden": false,
-          "createdAt": date,
-          "updatedAt": date,
-          "id": args[1],
-          "isOwner": true,
-          "publishedAt": null,
-          "projectType": null
+          data: [{
+            "hidden": false,
+            "createdAt": date,
+            "updatedAt": date,
+            "id": args[1],
+            "isOwner": true,
+            "publishedAt": null,
+            "projectType": null
+          }],
+          headers: {
+            "content-type": "application/json"
+          }
         }
 
         // If we have written to it before, say it is in S3
         if (updated) {
-          response.migratedToS3 = true;
+          response.data[0].migratedToS3 = true;
         }
 
         if (thumbnail) {
-          response.thumbnailUrl = thumbnail;
+          response.data[0].thumbnailUrl = thumbnail;
         }
 
         if (projectType) {
-          response.projectType = projectType;
+          response.data[0].projectType = projectType;
         }
 
         if (level) {
-          response.level = level;
+          response.data[0].level = level;
         }
       }
       else if (call === "sources" || call === "files") {
@@ -172,7 +212,12 @@ if (!window.__offline_replaced) {
             versions[i].isLatest = false;
           }
 
-          response = versions;
+          response = {
+            data: versions,
+            headers: {
+              "content-type": "application/json"
+            }
+          };
         }
         else if (basename === "restore") {
           // Restore level to particular version
@@ -195,14 +240,22 @@ if (!window.__offline_replaced) {
         }
         else if (method === "GET") {
           // Retrieve file
+          filename = filename.split('?')[0];
           console.log("[api] reading file at path:", filename);
 
           // Negotiate version
           let latest = window.localStorage.getItem(call + "/" + filename + "/latest");
-          response = window.localStorage.getItem(call + "/" + filename + "/versions/" + latest);
+          response = {
+            data: window.localStorage.getItem(call + "/" + filename + "/versions/" + latest),
+            headers: {
+              "content-type": "application/json",
+              "s3-version-id": latest
+            }
+          };
         }
         else {
           // Store file
+          filename = filename.split('?')[0];
           console.log("[api] writing file at path:", filename, data);
 
           // Remove the channel name
@@ -235,11 +288,16 @@ if (!window.__offline_replaced) {
 
           // Report the version
           response = {
-            filename: itemPath,
-            category: category,
-            size: data.byteLength || data.length,
-            versionId: version,
-            timestamp: modified
+            data: {
+              filename: itemPath,
+              category: category,
+              size: data.byteLength || data.length,
+              versionId: version,
+              timestamp: modified
+            },
+            headers: {
+              "content-type": "application/json"
+            }
           };
         }
       }
@@ -561,6 +619,43 @@ if (!window.__offline_replaced) {
       footer_observer.observe(targetFooterNode, config);
     }
     fixupLocaleDropdown();
+
+    const targetExtrasNode = document.querySelector('#lesson-extras');
+    if (targetExtrasNode) {
+      // Options for the observer (which mutations to observe)
+      const config = { attributes: true, childList: true, subtree: true };
+
+      // Callback function to execute when mutations are observed
+      const extras_callback = (mutationList, observer) => {
+        for (const mutation of mutationList) {
+          if (mutation.type === 'childList') {
+            // The extras list was modified, try to find links to bonus levels
+            targetExtrasNode.querySelectorAll('a').forEach( (link) => {
+              let href = link.getAttribute('href');
+              if (href && href.indexOf('extras.html?id') >= 0) {
+                // Get the id
+                let parts = href.split('extras.html?id=');
+                EXTRA_LEVELS.forEach( (level) => {
+                  let compare_id = level.split('=')[0];
+                  if (compare_id === parts[1]) {
+                    href = parts[0] + level.split('=')[1];
+                    link.setAttribute('href', href);
+                  }
+                });
+              }
+            });
+          }
+        }
+      };
+
+      // Create an observer instance linked to the callback function
+      const extras_observer = new MutationObserver(extras_callback);
+
+      extras_callback([{type: 'childList'}], extras_observer);
+
+      // Start observing the target node for configured mutations
+      extras_observer.observe(targetExtrasNode, config);
+    }
   });
 
   // Ensure absolute paths get turned into relative paths
@@ -622,9 +717,8 @@ if (!window.__offline_replaced) {
 
         try {
           if (response) {
-            let headers = {
-              "content-type": "application/json"
-            };
+            response.status = response.status || 200;
+            let headers = response.headers;
             let rHeaders = {};
             ret.setRequestHeader = function(header, value) {
               rHeaders[header] = value;
@@ -642,16 +736,13 @@ if (!window.__offline_replaced) {
               return headerString;
             };
             ret.__defineGetter__('response', function() {
-              return response;
+              return response.data;
             });
             ret.__defineGetter__('status', function() {
-              if (response === 404) {
-                return 404;
-              }
-              return 200;
+              return response.status;
             });
             ret.__defineGetter__('statusText', function() {
-              if (response === 404) {
+              if (response.status === 404) {
                 return "Not found";
               }
               return "OK";
@@ -659,7 +750,11 @@ if (!window.__offline_replaced) {
             ret.__defineGetter__('readyState', function() {
               return 4;
             });
-            let text = JSON.stringify(response);
+            // If the response is an object, text is the JSON string for it:
+            let text = response.data;
+            if (typeof response.data !== "string") {
+              text = JSON.stringify(response.data);
+            }
             ret.__defineGetter__('responseText', function() {
               return text;
             });
@@ -711,7 +806,12 @@ if (!window.__offline_replaced) {
 
     if (response) {
       return new Promise( (resolve, reject) => {
-        resolve(new Response(JSON.stringify(response)));
+        // If the response is an object, text is the JSON string for it:
+        let text = response.data;
+        if (typeof response.data !== "string") {
+          text = JSON.stringify(response.data);
+        }
+        resolve(new Response(text));
       });
     }
 

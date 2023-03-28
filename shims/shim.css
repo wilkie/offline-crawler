@@ -24,6 +24,8 @@
 /* Hide the signup/support/help buttons as they don't function in offline) */
 #pageheader #right,
 #pageheader #help-button,
+#pageheader #sign_in_or_user,
+#pageheader #hamburger,
 .header_right {
   display: none !important;
 }
@@ -70,8 +72,18 @@
   display: none !important;
 }
 
+/* Remove the course navigation */
+#header_popup_container {
+  display: none !important;
+}
+
 /* Some broken styling for the video.js buttons (minecraft levels in particular) */
-.vjs-button > .vjs-icon-placeholder:before {
+body.minecraft .vjs-button > .vjs-icon-placeholder:before {
   font-size: 0.5em;
   line-height: 1.5em;
+}
+
+/* Remove the "Projects" section from the extra levels page */
+#lesson-extras div + div + div ~ div {
+  display: none !important;
 }
