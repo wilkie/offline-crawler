@@ -84,6 +84,14 @@ body.minecraft .vjs-button > .vjs-icon-placeholder:before {
 }
 
 /* Remove the "Projects" section from the extra levels page */
+#lesson-extras div + div + p ~ div,
 #lesson-extras div + div + div ~ div {
+  display: none !important;
+}
+
+/* Remove the "Continue to lesson 2" button */
+/* This does not work for modularized courses where each lesson is an
+ * independent module. */
+#lesson-extras div div h1 + a {
   display: none !important;
 }

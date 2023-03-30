@@ -22,6 +22,11 @@ if (!window.__offline_replaced) {
   // path is the video file.
   const YOUTUBE_VIDEOS = ["%YOUTUBE_VIDEOS%"];
 
+  // This holds the path for PDF files representing any linked google doc.
+  // When we see a link to a google doc, we want to replace it with a link to
+  // download or view the pdf file.
+  const GDOC_PDFS = ["%GDOC_PDFS%"];
+
   // This helps us map extra levels by id to their given URL.
   // This will be in the form of "id=url" where id is the level id and url is
   // the given URL that was crawled for the extra level. We want to capture
@@ -158,7 +163,7 @@ if (!window.__offline_replaced) {
         // Default response (on initial load)
         let date = (new Date()).toISOString();
         response = {
-          data: [{
+          data: {
             "hidden": false,
             "createdAt": date,
             "updatedAt": date,
@@ -166,7 +171,7 @@ if (!window.__offline_replaced) {
             "isOwner": true,
             "publishedAt": null,
             "projectType": null
-          }],
+          },
           headers: {
             "content-type": "application/json"
           }
@@ -174,19 +179,19 @@ if (!window.__offline_replaced) {
 
         // If we have written to it before, say it is in S3
         if (updated) {
-          response.data[0].migratedToS3 = true;
+          response.data.migratedToS3 = true;
         }
 
         if (thumbnail) {
-          response.data[0].thumbnailUrl = thumbnail;
+          response.data.thumbnailUrl = thumbnail;
         }
 
         if (projectType) {
-          response.data[0].projectType = projectType;
+          response.data.projectType = projectType;
         }
 
         if (level) {
-          response.data[0].level = level;
+          response.data.level = level;
         }
       }
       else if (call === "sources" || call === "files") {
@@ -655,6 +660,43 @@ if (!window.__offline_replaced) {
 
       // Start observing the target node for configured mutations
       extras_observer.observe(targetExtrasNode, config);
+    }
+
+    const targetPlanNode = document.querySelector('.lesson-overview');
+    if (targetPlanNode) {
+      // Options for the observer (which mutations to observe)
+      const config = { attributes: true, childList: true, subtree: true };
+
+      // Callback function to execute when mutations are observed
+      const plan_callback = (mutationList, observer) => {
+        for (const mutation of mutationList) {
+          if (mutation.type === 'childList') {
+            // The plan list was modified, try to find links to bonus levels
+            targetPlanNode.querySelectorAll('a').forEach( (link) => {
+              let href = link.getAttribute('href');
+              if (href && href.indexOf('docs.google') >= 0) {
+                // Get the id
+                let parts = href.split('/d/');
+                GDOC_PDFS.forEach( (pdf) => {
+                  let compare_id = pdf.split('=')[0];
+                  if (compare_id === parts[1].split('/')[0]) {
+                    href = "../../../" + pdf.split('=')[1];
+                    link.setAttribute('href', href);
+                  }
+                });
+              }
+            });
+          }
+        }
+      };
+
+      // Create an observer instance linked to the callback function
+      const plan_observer = new MutationObserver(plan_callback);
+
+      plan_callback([{type: 'childList'}], plan_observer);
+
+      // Start observing the target node for configured mutations
+      plan_observer.observe(targetPlanNode, config);
     }
   });
 

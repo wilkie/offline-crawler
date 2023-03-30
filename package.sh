@@ -77,6 +77,10 @@ if [[ -z "${PORT}" ]]; then
   PORT="3000"
 fi
 
+if [[ -z "${VIDEO_MAX_SIZE}" ]]; then
+  VIDEO_MAX_SIZE=80000000
+fi
+
 if [[ -z "${USE_REMOTE}" ]]; then
   if [[ "${PORT}" != "80" ]]; then
     STUDIO_DOMAIN=http://${DOMAIN_PREFIX}-studio.code.org:${PORT}
@@ -140,6 +144,9 @@ fi
 mkdir -p ${PREFIX}
 touch ${PREFIX}/wget_log.txt
 
+# This the reject regex that disallows certain content from being downloaded
+REJECT_REGEX="[.]dmg$|[.]exe$|[.]mp4$|robots.txt$"
+
 # This is the argument to wget to use a logged in user session. We use the
 # 'login.sh' script to create a user session, if required. Otherwise, we just
 # use a session-less connection.
@@ -196,6 +203,55 @@ download() {
   wget ${SESSION} --directory-prefix ${PREFIX} ${1} ${2} |& tee -a ${3} | grep --line-buffered -ohe "[0-9]--\(\s\s.\+\)$" -e"Converting links in \(.\+\)$" | sed -u "s/in /[CONVERT-LINKS] /" | sed -u "s/--\s/ x [GET]/" | cut -d " " -f3,4
 }
 
+# Specifically for downloading video content
+#
+# Invoke as:
+#   download_video "<download path>" "<URL>" "<log file>"
+#   echo "${video_path}"
+#
+# Example:
+#   download_video "foo/bar.mp4" "https://videos.code.org/foo/bar.mp4" "${PREFIX}/wget-videos.log"
+#   # We expect '${video_path}' to be something like:
+#   # "${ROOT_PATH}/videos/foo/bar.mp4
+#   # If the video had to be made smaller, we expect to see something like:
+#   # "${ROOT_PATH}/videos/smaller/foo/bar.mp4
+download_video() {
+  video_path=${ROOT_PATH}/videos/${1}
+  wget ${SESSION} --directory-prefix ${PREFIX} -O ${video_path} -nc --tries=2 ${2} |& tee -a ${3} | grep --line-buffered -ohe "[0-9]--\(\s\s.\+\)$" -e"Converting links in \(.\+\)$" | sed -u "s/in /[CONVERT-LINKS] /" | sed -u "s/--\s/ x [GET]/" | cut -d " " -f3,4
+
+  # Analyze the video
+  # If it is too big, we downsize it via ffmpeg
+  dir=$(dirname "${1}")
+  filename=$(basename "${1}")
+  size=$(stat -c %s "${video_path}")
+
+  if (( "${size}" >= "${VIDEO_MAX_SIZE}" )); then
+    echo "[WARN] Video too big for our purposes (${size} bytes). Attempting downsize."
+
+    # Ensure we have the ffmpeg program
+    mkdir -p ${ROOT_PATH}/bin
+    if [ ! -e ${ROOT_PATH}/bin/ffmpeg ]; then
+      echo "[GET] 'ffmpeg'"
+      wget ${FFMPEG_RELEASE_URL} -O ${ROOT_PATH}/${SHARED}/ffmpeg.tar.xz -nc
+      cd ${ROOT_PATH}/shared
+      tar xf ffmpeg.tar.xz
+      mv ffmpeg-*-static/* ${ROOT_PATH}/bin/.
+      cd ${ROOT_PATH}
+    fi
+
+    # Use ffmpeg to generate a smaller video
+    video_path=${ROOT_PATH}/videos/smaller/${dir}/${filename}
+    mkdir -p ${ROOT_PATH}/videos/smaller/${dir}
+    if [ ! -e ${ROOT_PATH}/videos/smaller/${dir}/${filename} ]; then
+      # Create a downsized video
+      echo "[CREATE] \`smaller/${dir}/${filename}\`"
+      ${ROOT_PATH}/bin/ffmpeg -i ${ROOT_PATH}/videos/${dir}/${filename} -filter:v scale=1280:720 -c:a copy ${ROOT_PATH}/videos/smaller/${dir}/${filename}
+    else
+      echo "[EXISTS] \`smaller/${dir}/${filename}\`"
+    fi
+  fi
+}
+
 # This function downloads a set of URLs assuming they are shared resources.
 # These resources will not be downloaded again by any other module if already
 # found in the `/shared/` path.
@@ -221,7 +277,7 @@ download_shared() {
 
   wget ${SESSION} --directory-prefix ${SHARED} -nc -O ${SHARED}/${dir}/${filename} ${1} ${2} |& tee -a ${3} | grep --line-buffered -ohe "[0-9]--\(\s\s.\+\)$" -e"Converting links in \(.\+\)$" | sed -u "s/in /[CONVERT-LINKS] /" | sed -u "s/--\s/ x [GET]/" | cut -d " " -f3,4
 
-  if [ ! -e ${PREFIX}/${dir}/${filename} ]; then
+  if [ ! -e "${PREFIX}/${dir}/${filename}" ]; then
     cp "${SHARED}/${dir}/${filename}" "${PREFIX}/${dir}/${filename}"
   fi
 }
@@ -238,7 +294,7 @@ download_shared() {
 #
 # Example:
 #   download_youtube "https://www.youtube.com/watch?v=Vlj1_X474to"
-#   # We expect '${video_file}' to be something like:
+#   # We expect '${video_path}' to be something like:
 #   # "blah/videos/youtube/Debugging_Global_vs._Local_Variables-Vlj1_X474to.mp4"
 download_youtube() {
   url=${1}
@@ -248,10 +304,9 @@ download_youtube() {
   # Ensure we have the youtube-dl program
   mkdir -p ${ROOT_PATH}/bin
   if [ ! -e ${ROOT_PATH}/bin/youtube-dl ]; then
-    echo "Getting 'youtube-dl'"
+    echo "[GET] 'youtube-dl'"
     wget ${YOUTUBE_DL_RELEASE_URL} -O ${ROOT_PATH}/bin/youtube-dl 2> /dev/null > /dev/null
     chmod a+rx ${ROOT_PATH}/bin/youtube-dl
-    echo "Done."
   fi
 
   # Ensure there is a 'youtube' video path
@@ -265,7 +320,7 @@ download_youtube() {
     # video into 'video_path'. The output will be placed in a shared place for all
     # downloaded videos across all modules.
     #
-    # The '--restrict-filenames' ensures that no spaces or non-ASCII characters 
+    # The '--restrict-filenames' ensures that no spaces or non-ASCII characters
     # are in the filename.
     #
     # The '-o' tells it to place the output video in the given path with the
@@ -295,6 +350,28 @@ download_youtube() {
   else
     echo "WARNING: could not download youtube video: ${url}"
   fi
+}
+
+download_googledoc() {
+  # We can download pdfs of public google docs via:
+  # https://docs.google.com/document/u/0/export?format=pdf&id=${GDOC_ID}
+
+  # So, we want to transform any url of the form:
+  # https://docs.google.com/a/code.org/document/d/1ylIlO7Pppk6W3Jt58VHS5mjvnshg9URvj3iCU0Ok6qY/edit?usp=sharing
+
+  # To:
+  # https://docs.google.com/document/u/0/export?format=pdf&id=1ylIlO7Pppk6W3Jt58VHS5mjvnshg9URvj3iCU0Ok6qY
+  url=${1}
+
+  # Get the id from the URL
+  gdoc_id=`echo ${url} | grep -oe "/d/[^/]\+" | sed -u "s;/d/;;"`
+  echo ${gdoc_id}
+  pdf_url="https://docs.google.com/document/u/0/export?format=pdf&id=${gdoc_id}"
+  pdf_path=pdfs/${gdoc_id}.pdf
+
+  mkdir -p "${PREFIX}/pdfs"
+
+  wget ${SESSION} -nc -O ${PREFIX}/${pdf_path} ${pdf_url} |& tee -a ${2} | grep --line-buffered -ohe "[0-9]--\(\s\s.\+\)$" -e"Converting links in \(.\+\)$" | sed -u "s/in /[CONVERT-LINKS] /" | sed -u "s/--\s/ x [GET]/" | cut -d " " -f3,4
 }
 
 # This function 'fixes' links in resources.
@@ -400,6 +477,13 @@ fixup() {
     sed "s,${key}\\\\\&quot;:\\\\\&quot;/s\([^\\]\+\),${key}\\\\\&quot;:\\\\\&quot;${replace}/s-${replace_locale}\1.html,gi" -i ${path}
   done
 
+  # Let's also take the time to just remove references to next lessons.
+  # This should replace links for /lessons/${LESSON + 1}/levels/1 with /lessons/${LESSON}/levels/1
+  if [[ -z ${IS_COURSE} ]]; then
+    NEXT_LESSON=$((LESSON + 1))
+    sed "s;/lessons/${NEXT_LESSON}/levels;/lessons/${LESSON}/levels;g" -i ${path}
+  fi
+
   # Rewrite finish link in each level to work with correct locale
   sed "s;\(finishLink\"\s*:\s*\"[^\"]\+\)\";\1.${replace_locale}.html\";gi" -i ${path}
 
@@ -437,7 +521,7 @@ else
   download "-O ${PREFIX}/../base_course.html -nc" ${COURSE_URL} "${PREFIX}/wget-course.log"
   LESSONS=`grep -ohe "/lessons/[0-9]\+/levels/" ${PREFIX}/../base_course.html | sed -e "s;/lessons/;;" | sed -e "s;/levels/;;" | sort -n | uniq`
 
-  download "--domains=${DOMAINS} -nc --page-requisites --convert-links --adjust-extension --no-host-directories --continue -H --span-hosts --tries=2 --reject-regex=\"[.]dmg$|[.]exe$|[.]mp4$\" --exclude-domains=${EXCLUDE_DOMAINS}" "${COURSE_URL} https://code.org/tos https://code.org/privacy" "${PREFIX}/wget-course.log"
+  download "--domains=${DOMAINS} -nc --page-requisites --convert-links --adjust-extension --no-host-directories --continue -H --span-hosts --tries=2 --reject-regex=\"${REJECT_REGEX}\" --exclude-domains=${EXCLUDE_DOMAINS}" "${COURSE_URL} https://code.org/tos https://code.org/privacy" "${PREFIX}/wget-course.log"
 
   fixup "${PREFIX}/s/${COURSE}.html" ".."
   fixup "${PREFIX}/tos.html" "."
@@ -474,6 +558,7 @@ fi
 FINISH_LINK=
 LESSON_LEVELS=
 LEVEL_URLS=
+PLAN_URLS=
 for LESSON in ${LESSONS}
 do
   # Crawl initial page for the lesson
@@ -547,6 +632,9 @@ do
     LEVEL_URLS="${LEVEL_URLS}${STUDIO_DOMAIN}/s/${COURSE}/lessons/${LESSON}/levels/${i} "
   done
 
+  # Retain lesson plan page
+  PLAN_URLS="${PLAN_URLS}${STUDIO_DOMAIN}/s/${COURSE}/lessons/${LESSON} "
+
   # Determine if we have any 'extra' levels
   EXTRAS_LINK=`grep -ohe "lesson_extras_level_url\"\s*:\s*\"[^\"]\+" ${PREFIX}/../base_${LESSON}.html | sed -u "s;lesson_extras_level_url\"\s*:\s*\";;"`
 
@@ -588,6 +676,9 @@ do
 done
 LESSON_LEVELS=(${LESSON_LEVELS})
 
+# Whether or not we have crawled the site with one locale
+# (We don't need to do all the steps for second locales)
+DONE_ONCE=
 for locale in "${LOCALES[@]}"; do
   echo ""
   echo "Using ${locale} locale."
@@ -608,9 +699,9 @@ for locale in "${LOCALES[@]}"; do
   echo ""
   echo "Downloading all levels..."
 
-  download "--domains=${DOMAINS} -nc --page-requisites --convert-links --adjust-extension --no-host-directories --continue -H --span-hosts --tries=2 --reject-regex=\"[.]dmg$|[.]exe$|[.]mp4$\" --exclude-domains=${EXCLUDE_DOMAINS}" "${LEVEL_URLS} ${FINISH_LINK}" "${PREFIX}/wget-levels.log"
+  download "--domains=${DOMAINS} -nc --page-requisites --convert-links --adjust-extension --no-host-directories --continue -H --span-hosts --tries=2 --reject-regex=\"${REJECT_REGEX}\" --exclude-domains=${EXCLUDE_DOMAINS}" "${LEVEL_URLS} ${PLAN_URLS} ${FINISH_LINK}" "${PREFIX}/wget-levels.log"
 
-  if [[ -z "${IS_COURSE}" ]]; then
+  if [[ -z "${DONE_ONCE}" && -z "${IS_COURSE}" ]]; then
     echo ""
     echo "Fixing up privacy/tos pages..."
     fixup "${PREFIX}/tos.html" "."
@@ -645,7 +736,7 @@ for locale in "${LOCALES[@]}"; do
 
     # For every extras level known, fix it up
     EXTRAS_LEVEL_FILENAMES=
-    for k in "${!EXTRAS_LEVEL_URLS[@]}"; do 
+    for k in "${!EXTRAS_LEVEL_URLS[@]}"; do
       extras_url=${EXTRAS_LEVEL_URLS[${k}]}
       extras_id=${EXTRAS_LEVEL_IDS[${k}]}
       extras_path=`echo "${extras_url}" | sed -u "s;http[s]\?:${BASE_STUDIO_DOMAIN}\/;;"`
@@ -680,7 +771,7 @@ for locale in "${LOCALES[@]}"; do
     dir=$(dirname "${url}")
     mkdir -p ${PREFIX}/${dir}
 
-    download "--domains=${DOMAINS} --page-requisites --convert-links --directory-prefix ${PREFIX} --no-host-directories --continue -H --span-hosts --tries=2 --reject-regex=\"[.]dmg$|[.]exe$|[.]mp4$\" --exclude-domains=${EXCLUDE_DOMAINS}" ${STUDIO_DOMAIN}/${url} "${PREFIX}/wget-other.log"
+    download "--domains=${DOMAINS} --page-requisites --convert-links --directory-prefix ${PREFIX} --no-host-directories --continue -H --span-hosts --tries=2 --reject-regex=\"${REJECT_REGEX}\" --exclude-domains=${EXCLUDE_DOMAINS}" ${STUDIO_DOMAIN}/${url} "${PREFIX}/wget-other.log"
   done
 
   echo ""
@@ -695,8 +786,8 @@ for locale in "${LOCALES[@]}"; do
     if [ -f videos/${dir}/${filename} ]; then
       echo "[EXISTS] \`${VIDEO_DOMAIN}/${dir}/${filename}\`"
     fi
-    download "-O videos/${dir}/${filename} -nc --tries=2" ${VIDEO_DOMAIN}/${dir}/${filename} "${PREFIX}/wget-videos.log"
-    cp videos/${dir}/${filename} ${PREFIX}/${dir}/${filename}
+    download_video "${dir}/${filename}" "${VIDEO_DOMAIN}/${dir}/${filename}" "${PREFIX}/wget-videos.log"
+    cp ${video_path} ${PREFIX}/${dir}/${filename}
   done
 
   FIXUP_PATHS=
@@ -713,9 +804,11 @@ for locale in "${LOCALES[@]}"; do
     URLS=
     VIDEOS=
     YT_URLS=
-    # Look at every level html file
-    LEVEL_PATHS=`ls ${PREFIX}/s/${COURSE}/lessons/${LESSON}/levels/*.html`
+    GDOC_URLS=
+    # Look at every level html file and lesson file
+    LEVEL_PATHS=`ls ${PREFIX}/s/${COURSE}/lessons/${LESSON}/levels/*.html ${PREFIX}/s/${COURSE}/lessons/*.html`
     for level_path in ${LEVEL_PATHS}; do
+        echo "looking at ${level_path}"
       # Find popup videos by their download links
       video=`grep ${level_path} -ohe "data-download\s*=\s*['\"][^'\"]\+['\"]" | cut -d '"' -f2 | sed -u "s;${VIDEO_DOMAIN}/;;" | sed -u "s;https://videos.code.org/;;"`
       if [[ ! -z "${video/$'\n'/}" ]]; then
@@ -747,6 +840,13 @@ for locale in "${LOCALES[@]}"; do
         echo "[FOUND] \`${yt_url}\`"
         YT_URLS="${YT_URLS} ${yt_url}"
       done
+
+      # Find google doc links
+      gdocs=`grep ${level_path} -ohe "\(http[s]\?://\)\?docs.google.com/[^\")]\+"`
+      for gdoc_url in ${gdocs}; do
+        echo "[FOUND] \`${gdoc_url}\`"
+        GDOC_URLS="${GDOC_URLS} ${gdoc_url}"
+      done
     done
 
     # Videos
@@ -762,14 +862,22 @@ for locale in "${LOCALES[@]}"; do
       if [ -f videos/${dir}/${filename} ]; then
         echo "[EXISTS] \`${VIDEO_DOMAIN}/${dir}/${filename}\`"
       fi
-      download "-O videos/${dir}/${filename} -nc --tries=2" ${VIDEO_DOMAIN}/${dir}/${filename} "${PREFIX}/wget-videos.log"
-      cp videos/${dir}/${filename} ${PREFIX}/${dir}/${filename}
+      download_video "${dir}/${filename}" "${VIDEO_DOMAIN}/${dir}/${filename}" "${PREFIX}/wget-videos.log"
+      cp ${video_path} ${PREFIX}/${dir}/${filename}
     done
 
     for yt_url in ${YT_URLS}; do
       download_youtube "${yt_url}"
 
       YOUTUBE_VIDEOS="${video_id}=${video_url} ${YOUTUBE_VIDEOS}"
+    done
+
+    for gdoc_url in ${GDOC_URLS}; do
+      # Download and replace the link text with the local pdf
+      # This function sets `gdoc_id` and `pdf_path`
+      download_googledoc "${gdoc_url}" "${PREFIX}/wget-gdocs.log"
+
+      GDOC_PDFS="${gdoc_id}=${pdf_path} ${GDOC_PDFS}"
     done
 
     # Other dynamic content we want wholesale downloaded (transcripts for the videos)
@@ -782,7 +890,7 @@ for locale in "${LOCALES[@]}"; do
       dir=$(dirname "${url}")
       mkdir -p ${PREFIX}/${dir}
 
-      download "--domains=${DOMAINS} --page-requisites --convert-links --directory-prefix ${PREFIX} --no-host-directories --continue -H --span-hosts --tries=2 --reject-regex=\"[.]dmg$|[.]exe$|[.]mp4$\" --exclude-domains=${EXCLUDE_DOMAINS}" ${STUDIO_DOMAIN}/${url} "${PREFIX}/wget-other.log"
+      download "--domains=${DOMAINS} --page-requisites --convert-links --directory-prefix ${PREFIX} --no-host-directories --continue -H --span-hosts --tries=2 --reject-regex=\"${REJECT_REGEX}\" --exclude-domains=${EXCLUDE_DOMAINS}" ${STUDIO_DOMAIN}/${url} "${PREFIX}/wget-other.log"
     done
 
     if [[ ! -z ${FINISH_LINK} ]]; then
@@ -801,7 +909,7 @@ for locale in "${LOCALES[@]}"; do
         echo "OK? ${url}"
 
         mkdir -p ${PREFIX}/${dir}
-        download_shared "--reject-regex=\"[.]dmg$|[.]exe$|[.]mp4$\" --exclude-domains=videos.code.org" ${url} "${PREFIX}/wget-assets.log"
+        download_shared "--reject-regex=\"${REJECT_REGEX}\" --exclude-domains=videos.code.org" ${url} "${PREFIX}/wget-assets.log"
       done
     fi
 
@@ -817,7 +925,7 @@ for locale in "${LOCALES[@]}"; do
       filename=$(basename "${url}")
 
       mkdir -p ${PREFIX}/${dir}
-      download "--reject-regex=\"[.]dmg$|[.]exe$|[.]mp4$\" --exclude-domains=videos.code.org -nc -O ${PREFIX}/${dir}/${filename}" ${STUDIO_DOMAIN}/${url} "${PREFIX}/wget-assets.log"
+      download "--reject-regex=\"${REJECT_REGEX}\" --exclude-domains=videos.code.org -nc -O ${PREFIX}/${dir}/${filename}" ${STUDIO_DOMAIN}/${url} "${PREFIX}/wget-assets.log"
     done
 
     LEVEL_PATHS=`ls ${PREFIX}/s/${COURSE}/lessons/${LESSON}/levels/*.html`
@@ -833,7 +941,7 @@ for locale in "${LOCALES[@]}"; do
 
         if [[ ${domain} == "studio.code.org" || ${domain} == "tts.code.org" || ${domain} == "images.code.org" ]]; then
           mkdir -p ${PREFIX}/${dir}
-          download_shared "--reject-regex=\"[.]dmg$|[.]exe$|[.]mp4$\" --exclude-domains=videos.code.org" ${url} "${PREFIX}/wget-assets.log"
+          download_shared "--reject-regex=\"${REJECT_REGEX}\" --exclude-domains=videos.code.org" ${url} "${PREFIX}/wget-assets.log"
         fi
       done
 
@@ -853,7 +961,7 @@ for locale in "${LOCALES[@]}"; do
         filename=$(basename "${url}")
 
         mkdir -p ${PREFIX}/${dir}
-        download_shared "--reject-regex=\"[.]dmg$|[.]exe$|[.]mp4$\" --exclude-domains=videos.code.org" https://studio.code.org/${dir}/${filename} "${PREFIX}/wget-assets.log"
+        download_shared "--reject-regex=\"${REJECT_REGEX}\" --exclude-domains=videos.code.org" https://studio.code.org/${dir}/${filename} "${PREFIX}/wget-assets.log"
       done
 
       # wget does not find stylesheets that are in <link> tags inside the <body>
@@ -865,7 +973,7 @@ for locale in "${LOCALES[@]}"; do
         filename=$(basename "${url}")
 
         mkdir -p ${PREFIX}/${dir}
-        download_shared "--reject-regex=\"[.]dmg$|[.]exe$|[.]mp4$\" --exclude-domains=videos.code.org" ${STUDIO_DOMAIN}/${url} "${PREFIX}/wget-assets.log"
+        download_shared "--reject-regex=\"${REJECT_REGEX}\" --exclude-domains=videos.code.org" ${STUDIO_DOMAIN}/${url} "${PREFIX}/wget-assets.log"
       done
 
       ASSETS=`grep ${level_path} -e "<[lL][iI][nN][kK].\+[hH][rR][eE][fF]\s*=\s*\"${STUDIO_DOMAIN}" | grep -ohe "[hH][rR][eE][fF]\s*=\s*\"[^\"]\+" | sed -u "s;[hH][rR][eE][fF]\s*=\s*\"${STUDIO_DOMAIN}/;;"`
@@ -877,7 +985,7 @@ for locale in "${LOCALES[@]}"; do
         filename=$(basename "${path}")
 
         mkdir -p ${PREFIX}/${dir}
-        download_shared "--reject-regex=\"[.]dmg$|[.]exe$|[.]mp4$\" --exclude-domains=videos.code.org" ${STUDIO_DOMAIN}/${url} "${PREFIX}/wget-assets.log"
+        download_shared "--reject-regex=\"${REJECT_REGEX}\" --exclude-domains=videos.code.org" ${STUDIO_DOMAIN}/${url} "${PREFIX}/wget-assets.log"
       done
 
       # Get ID of application this level represents ('craft', 'dance', etc)
@@ -972,14 +1080,12 @@ for locale in "${LOCALES[@]}"; do
       filename=$(basename "${path}")
 
       mkdir -p ${PREFIX}/${dir}
-      download_shared "--reject-regex=\"[.]dmg$|[.]exe$|[.]mp4$\" --exclude-domains=videos.code.org" ${STUDIO_DOMAIN}/${url} "${PREFIX}/wget-assets.log"
+      download_shared "--reject-regex=\"${REJECT_REGEX}\" --exclude-domains=videos.code.org" ${STUDIO_DOMAIN}/${url} "${PREFIX}/wget-assets.log"
     done
 
     # Also grab any relative resources. These are relative to the CSS file,
     # annoyingly. For some reason, they are not picked up by wget.
     ASSETS=`grep ${css} -oe "url([\"]\?[.][.][^)]\+" | sed -u 's;url([\"]\?;;'`
-    echo "${css}"
-    echo "${ASSETS}"
     for relative_url in ${ASSETS}
     do
       path="assets/css/${relative_url}"
@@ -988,16 +1094,21 @@ for locale in "${LOCALES[@]}"; do
       filename=$(basename "${path}")
 
       mkdir -p ${PREFIX}/${dir}
-      download_shared "--reject-regex=\"[.]dmg$|[.]exe$|[.]mp4$\" --exclude-domains=videos.code.org" ${STUDIO_DOMAIN}/${url} "${PREFIX}/wget-assets.log"
+      download_shared "--reject-regex=\"${REJECT_REGEX}\" --exclude-domains=videos.code.org" ${STUDIO_DOMAIN}/${url} "${PREFIX}/wget-assets.log"
     done
   done
 
   echo ""
   echo "Fixing links in pages..."
 
-  for path in ${FIXUP_PATHS}
-  do
+  for path in ${FIXUP_PATHS}; do
     fixup ${path} "../../../../.." ${locale}
+  done
+
+  # Fix up lesson plan pages
+  plan_paths=`ls ${PREFIX}/s/${COURSE}/lessons/*.html`
+  for path in ${plan_paths}; do
+    fixup ${path} "../../.." ${locale}
   done
 
   # Copy over webpacked chunks
@@ -1026,121 +1137,123 @@ for locale in "${LOCALES[@]}"; do
     cp ${img} ${PREFIX}/assets/js/.
   done
 
-  echo ""
-  echo "Gathering assets from JavaScript..."
-
-  LIBRARIES_FILES=`ls ${CODE_DOT_ORG_REPO_PATH}/dashboard/config/libraries`
-  libraries=
-  for library in ${LIBRARIES_FILES}
-  do
-    library="${library%%.*}"
-    libraries="${libraries}\"${library}\"\|"
-  done
-
   FIXUP_PATHS=
-  # Also add the javascript (and assets found within)
-  for js in `ls ${PREFIX}/assets/js/*.js`
-  do
-    FIXUP_PATHS="${FIXUP_PATHS} ${js}"
+  if [[ -z "${DONE_ONCE}" ]]; then
+    echo ""
+    echo "Gathering assets from JavaScript..."
 
-    # Gather static assets from javascript
-    # Replace Trashcan graphics... if we can
-    TRASHCAN_CLOSED_URL=`grep ${js} -ohe "Blockly.Trashcan.CLOSED_URL_\s*=\s*\"[^\"]\+\"" | sed -u "s;Blockly.Trashcan.CLOSED_URL_\s*=\s*\"\([^\"]\+\)\";\1;" | tail -n1`
-    if [ ! -z "${TRASHCAN_CLOSED_URL}" ]; then
-      sed "s;Blockly.Trashcan.CLOSED_URL_);\"${TRASHCAN_CLOSED_URL}\");gi" -i ${js}
-    fi
-    TRASHCAN_OPEN_URL=`grep ${js} -ohe "Blockly.Trashcan.OPEN_URL_\s*=\s*\"[^\"]\+\"" | sed -u "s;Blockly.Trashcan.OPEN_URL_\s*=\s*\"\([^\"]\+\)\";\1;" | tail -n1`
-    if [ ! -z "${TRASHCAN_OPEN_URL}" ]; then
-      sed "s;Blockly.Trashcan.OPEN_URL_);\"${TRASHCAN_OPEN_URL}\");gi" -i ${js}
-    fi
-
-    for blocklyAsset in `grep ${js} -ohe "Blockly.assetUrl(\"[^)]\+\(mp3\|png\|gif\|cur\)\")" | sed -u "s;Blockly.assetUrl(\"\(.\+\)\")$;blockly/\1;g"`; do
-      STATIC="${STATIC} ${blocklyAsset}"
+    LIBRARIES_FILES=`ls ${CODE_DOT_ORG_REPO_PATH}/dashboard/config/libraries`
+    libraries=
+    for library in ${LIBRARIES_FILES}
+    do
+      library="${library%%.*}"
+      libraries="${libraries}\"${library}\"\|"
     done
 
-    # Get ID of application this JS file represents ('craft', 'dance', etc)
-    APP_ID=`grep ${js} -ohe "{app\s*:\s*['\"][a-z][a-z][^\"']*['\"]" | sed -u "s;{app\s*:\s*['\"]\([^'\"]\+\)['\"];\1;" | tail -n1`
-    if [ ! -z "${APP_ID}" ]; then
-      echo "[DETECTED] Found '${APP_ID}' app via $(basename ${js})"
+    # Also add the javascript (and assets found within)
+    for js in `ls ${PREFIX}/assets/js/*.js`
+    do
+      FIXUP_PATHS="${FIXUP_PATHS} ${js}"
 
-      # We probably want the skins and media paths for this app type
-      if [ -d "${CODE_DOT_ORG_REPO_PATH}/dashboard/public/blockly/media/${APP_ID}" ]; then
-        PATHS="${PATHS} blockly/media/${APP_ID}"
+      # Gather static assets from javascript
+      # Replace Trashcan graphics... if we can
+      TRASHCAN_CLOSED_URL=`grep ${js} -ohe "Blockly.Trashcan.CLOSED_URL_\s*=\s*\"[^\"]\+\"" | sed -u "s;Blockly.Trashcan.CLOSED_URL_\s*=\s*\"\([^\"]\+\)\";\1;" | tail -n1`
+      if [ ! -z "${TRASHCAN_CLOSED_URL}" ]; then
+        sed "s;Blockly.Trashcan.CLOSED_URL_);\"${TRASHCAN_CLOSED_URL}\");gi" -i ${js}
       fi
-      if [ -d "${CODE_DOT_ORG_REPO_PATH}/dashboard/public/blockly/media/skins/${APP_ID}" ]; then
-        PATHS="${PATHS} blockly/media/skins/${APP_ID}"
+      TRASHCAN_OPEN_URL=`grep ${js} -ohe "Blockly.Trashcan.OPEN_URL_\s*=\s*\"[^\"]\+\"" | sed -u "s;Blockly.Trashcan.OPEN_URL_\s*=\s*\"\([^\"]\+\)\";\1;" | tail -n1`
+      if [ ! -z "${TRASHCAN_OPEN_URL}" ]; then
+        sed "s;Blockly.Trashcan.OPEN_URL_);\"${TRASHCAN_OPEN_URL}\");gi" -i ${js}
       fi
 
-      # Now we can determine the asset root (blockly/media/skins/${APP_ID}/...)
-      ASSET_ROOT=blockly/media/skins/${APP_ID}/
-
-      # Gather them
-      ITEMS=`grep ${js} -ohe "this.assetRoot\s*+\s*['\"][^'\"]\+\(mp3\|png\|gif\|cur\)['\"]" | sed -u "s;this.assetRoot\s*+\s*['\"]\([^'\"]\+\)['\"];${ASSET_ROOT}\1;g"`
-      for asset in ${ITEMS}; do
-        STATIC="${STATIC} ${asset}"
+      for blocklyAsset in `grep ${js} -ohe "Blockly.assetUrl(\"[^)]\+\(mp3\|png\|gif\|cur\)\")" | sed -u "s;Blockly.assetUrl(\"\(.\+\)\")$;blockly/\1;g"`; do
+        STATIC="${STATIC} ${blocklyAsset}"
       done
-    fi
 
-    # Immersive Reader (external things)
-    ITEMS=`grep ${js} -ohe "https://contentstorage.onenote[^\"]\+"`
-    for url in ${ITEMS}; do
-      download_shared "--reject-regex=\"[.]dmg$|[.]exe$|[.]mp4$\" --exclude-domains=videos.code.org" ${url} "${PREFIX}/wget-assets.log"
-    done
-    sed "s;https://contentstorage.onenote.office.net;../../../../..;gi" -i ${js}
+      # Get ID of application this JS file represents ('craft', 'dance', etc)
+      APP_ID=`grep ${js} -ohe "{app\s*:\s*['\"][a-z][a-z][^\"']*['\"]" | sed -u "s;{app\s*:\s*['\"]\([^'\"]\+\)['\"];\1;" | tail -n1`
+      if [ ! -z "${APP_ID}" ]; then
+        echo "[DETECTED] Found '${APP_ID}' app via $(basename ${js})"
 
-    MEDIA_URL=`grep ${js} -ohe "MEDIA_URL\s*=\s*\"[^\"]\+\"" | sed -u "s;MEDIA_URL\s*=\s*\"/\([^\"]\+\)\";\1;" | tail -n1`
-    if [ ! -z "${MEDIA_URL}" ]; then
-      echo "[DETECTED] Found an asset path: ${MEDIA_URL}"
+        # We probably want the skins and media paths for this app type
+        if [ -d "${CODE_DOT_ORG_REPO_PATH}/dashboard/public/blockly/media/${APP_ID}" ]; then
+          PATHS="${PATHS} blockly/media/${APP_ID}"
+        fi
+        if [ -d "${CODE_DOT_ORG_REPO_PATH}/dashboard/public/blockly/media/skins/${APP_ID}" ]; then
+          PATHS="${PATHS} blockly/media/skins/${APP_ID}"
+        fi
 
-      # Gather MEDIA_URL items
-      ITEMS=`grep ${js} -ohe "MEDIA_URL\s*+\s*\"[^,]\+\"" | sed -u "s;MEDIA_URL\s*+\s*\"\([^\"]\+\)\";${MEDIA_URL}\1;"`
-      for asset in ${ITEMS}; do
-        STATIC="${STATIC} ${asset}"
+        # Now we can determine the asset root (blockly/media/skins/${APP_ID}/...)
+        ASSET_ROOT=blockly/media/skins/${APP_ID}/
+
+        # Gather them
+        ITEMS=`grep ${js} -ohe "this.assetRoot\s*+\s*['\"][^'\"]\+\(mp3\|png\|gif\|cur\)['\"]" | sed -u "s;this.assetRoot\s*+\s*['\"]\([^'\"]\+\)['\"];${ASSET_ROOT}\1;g"`
+        for asset in ${ITEMS}; do
+          STATIC="${STATIC} ${asset}"
+        done
+      fi
+
+      # Immersive Reader (external things)
+      ITEMS=`grep ${js} -ohe "https://contentstorage.onenote[^\"]\+"`
+      for url in ${ITEMS}; do
+        download_shared "--reject-regex=\"${REJECT_REGEX}\" --exclude-domains=videos.code.org" ${url} "${PREFIX}/wget-assets.log"
       done
-    fi
+      sed "s;https://contentstorage.onenote.office.net;../../../../..;gi" -i ${js}
 
-    # Look for library referenced in the JavaScript and add it
-    references=`grep ${js} -ohe "${libraries}" | sed -u "s;\";;g"`
+      MEDIA_URL=`grep ${js} -ohe "MEDIA_URL\s*=\s*\"[^\"]\+\"" | sed -u "s;MEDIA_URL\s*=\s*\"/\([^\"]\+\)\";\1;" | tail -n1`
+      if [ ! -z "${MEDIA_URL}" ]; then
+        echo "[DETECTED] Found an asset path: ${MEDIA_URL}"
 
-    if [ ! -z "${references}" ]; then
-      for reference in ${references}
+        # Gather MEDIA_URL items
+        ITEMS=`grep ${js} -ohe "MEDIA_URL\s*+\s*\"[^,]\+\"" | sed -u "s;MEDIA_URL\s*+\s*\"\([^\"]\+\)\";${MEDIA_URL}\1;"`
+        for asset in ${ITEMS}; do
+          STATIC="${STATIC} ${asset}"
+        done
+      fi
+
+      # Look for library referenced in the JavaScript and add it
+      references=`grep ${js} -ohe "${libraries}" | sed -u "s;\";;g"`
+
+      if [ ! -z "${references}" ]; then
+        for reference in ${references}
+        do
+          LIBRARIES="${LIBRARIES} ${reference}"
+        done
+      fi
+
+      # Get the hard-coded images (download_button for video, etc)
+      ASSETS=`grep ${js} -ohe "src\s*=\s*\"/[^\"]*" | sed -u 's;^src\s*=\s*"/;;g'`
+      for url in ${ASSETS}
       do
-        LIBRARIES="${LIBRARIES} ${reference}"
+        STATIC="${STATIC} ${url}"
       done
-    fi
 
-    # Get the hard-coded images (download_button for video, etc)
-    ASSETS=`grep ${js} -ohe "src\s*=\s*\"/[^\"]*" | sed -u 's;^src\s*=\s*"/;;g'`
-    for url in ${ASSETS}
-    do
-      STATIC="${STATIC} ${url}"
+      # Get blockly assets that are hard-coded
+      ASSETS=`grep ${js} -ohe "src:\s*\"/blockly/[^\"]*" | sed -u 's;^src:\s*"/;;g'`
+      for url in ${ASSETS}
+      do
+        STATIC="${STATIC} ${url}"
+      done
+
+      # Everything EXCEPT the really large sound-library should be included
+      ASSETS=`grep ${js} -ohe "\"\(https://studio.code.org\)\?/api/v1/[^s][^o][^u][^\"]\+/\?\"[^.]" | sed -u 's;\"\(https://studio.code.org\)\?/\?\([^.]$\)\?;;g'`
+      for url in ${ASSETS}
+      do
+        dir=$(dirname "${url}")
+        filename=$(basename "${url}")
+
+        # If the 'filename' does not have an extension... it is probably a route
+        # that we need to rewrite.
+        if [[ "$filename" != *"."* ]]; then
+          sed "s;${url}\/\?\";${url}.json\";g" -i ${js}
+          filename="${filename}.json"
+        fi
+
+        mkdir -p ${PREFIX}/${dir}
+        download_shared "--reject-regex=\"${REJECT_REGEX}\" --exclude-domains=videos.code.org" https://studio.code.org/${url} "${PREFIX}/wget-assets.log"
+      done
     done
-
-    # Get blockly assets that are hard-coded
-    ASSETS=`grep ${js} -ohe "src:\s*\"/blockly/[^\"]*" | sed -u 's;^src:\s*"/;;g'`
-    for url in ${ASSETS}
-    do
-      STATIC="${STATIC} ${url}"
-    done
-
-    # Everything EXCEPT the really large sound-library should be included
-    ASSETS=`grep ${js} -ohe "\"\(https://studio.code.org\)\?/api/v1/[^s][^o][^u][^\"]\+/\?\"[^.]" | sed -u 's;\"\(https://studio.code.org\)\?/\?\([^.]$\)\?;;g'`
-    for url in ${ASSETS}
-    do
-      dir=$(dirname "${url}")
-      filename=$(basename "${url}")
-
-      # If the 'filename' does not have an extension... it is probably a route
-      # that we need to rewrite.
-      if [[ "$filename" != *"."* ]]; then
-        sed "s;${url}\/\?\";${url}.json\";g" -i ${js}
-        filename="${filename}.json"
-      fi
-
-      mkdir -p ${PREFIX}/${dir}
-      download_shared "--reject-regex=\"[.]dmg$|[.]exe$|[.]mp4$\" --exclude-domains=videos.code.org" https://studio.code.org/${url} "${PREFIX}/wget-assets.log"
-    done
-  done
+  fi
 
   echo ""
   echo "Fixing links in pages..."
@@ -1151,8 +1264,10 @@ for locale in "${LOCALES[@]}"; do
   done
 
   # Add some of the extra silly things
-  mkdir -p ${PREFIX}/s/${COURSE}/hidden_lessons
-  echo "[]" > ${PREFIX}/s/${COURSE}/hidden_lessons
+  if [[ ! -e "${PREFIX}/s/${COURSE}/hidden_lessons" ]]; then
+    mkdir -p "${PREFIX}/s/${COURSE}"
+    echo "[]" > "${PREFIX}/s/${COURSE}/hidden_lessons"
+  fi
 
   # Move the 'levels' to a locale-specific place
   mv ${PREFIX}/s ${PREFIX}/../s-${locale}
@@ -1162,29 +1277,30 @@ for locale in "${LOCALES[@]}"; do
 
   # For all content, move it over to the resulting directory if it doesn't
   # already exist
-  for item in `ls ${PREFIX}`; do
-    if [[ ! -e ${PREFIX}/../${item} ]]; then
-      mv ${PREFIX}/${item} ${PREFIX}/../${item}
+  cd ${ROOT_PATH}
+  cd ${PREFIX}
+  echo ""
+  echo "Moving new files."
+  find . -print0 | while read -d $'\0' file; do
+    path=${file:2}
+    dir=$(dirname "${path}")
+    if [[ ! -e "${ROOT_PATH}/${PREFIX}/../${dir}" ]]; then
+      echo "[MKDR] ${dir}"
+      mkdir -p "${ROOT_PATH}/${PREFIX}/../${dir}"
+    fi
+    if [[ ! -e "${ROOT_PATH}/${PREFIX}/../${path}" ]]; then
+      echo "[MOVE] ${path}"
+      mv "${ROOT_PATH}/${PREFIX}/${path}" "${ROOT_PATH}/${PREFIX}/../${path}"
     fi
   done
-
-  # Move any new css files
-  for item in `ls ${PREFIX}/assets/css`; do
-    if [[ ! -e ${PREFIX}/../assets/css/${item} ]]; then
-      mv ${PREFIX}/assets/css/${item} ${PREFIX}/../assets/css/${item}
-    fi
-  done
-
-  # Move any new js files
-  for item in `ls ${PREFIX}/assets/js`; do
-    if [[ ! -e ${PREFIX}/../assets/js/${item} ]]; then
-      mv ${PREFIX}/assets/js/${item} ${PREFIX}/../assets/js/${item}
-    fi
-  done
+  cd ${ROOT_PATH}
 
   # Remove our temporary space so we can do it again
   rm -rf ${PREFIX}
   mkdir -p ${PREFIX}
+
+  # Set our variable to denote that we have done this loop at least once.
+  DONE_ONCE=1
 done
 
 # Point to our resulting build path
@@ -1220,7 +1336,8 @@ do
 
     # Updates to add YOUTUBE_VIDEOS
     YOUTUBE_VIDEOS_ARRAY=
-    for yt_tuple in ${YOUTUBE_VIDEOS}; do
+    YOUTUBE_VIDEOS=(${YOUTUBE_VIDEOS})
+    for yt_tuple in "${YOUTUBE_VIDEOS[@]}"; do
       if [[ -z "${YOUTUBE_VIDEOS_ARRAY}" ]]; then
         YOUTUBE_VIDEOS_ARRAY="${yt_tuple}"
       else
@@ -1229,9 +1346,21 @@ do
     done
     sed "s;%YOUTUBE_VIDEOS%;${YOUTUBE_VIDEOS_ARRAY};" -i ${js}.new
 
+    # Updates to add YOUTUBE_VIDEOS
+    GDOC_PDFS_ARRAY=
+    GDOC_PDFS=(${GDOC_PDFS})
+    for gdoc_tuple in "${GDOC_PDFS[@]}"; do
+      if [[ -z "${GDOC_PDFS_ARRAY}" ]]; then
+        GDOC_PDFS_ARRAY="${gdoc_tuple}"
+      else
+        GDOC_PDFS_ARRAY="${gdoc_tuple}\", \"${GDOC_PDFS_ARRAY}"
+      fi
+    done
+    sed "s;%GDOC_PDFS%;${GDOC_PDFS_ARRAY};" -i ${js}.new
+
     # Updates to add EXTRA_LEVELS
     EXTRA_LEVELS_ARRAY=
-    for k in "${!EXTRAS_LEVEL_URLS[@]}"; do 
+    for k in "${!EXTRAS_LEVEL_URLS[@]}"; do
       extras_path=${EXTRAS_LEVEL_FILENAMES[${k}]}
       extras_id=${EXTRAS_LEVEL_IDS[${k}]}
       extras_level_tuple="${extras_id}=${extras_path}"
@@ -1249,8 +1378,20 @@ do
   fi
 done
 
+# Look at css files within the assets path
 DEST=`ls ${PREFIX}/assets/css/*.css`
+for css in ${DEST}
+do
+  path=`echo ${css} 2> /dev/null`
+  if [ -f ${path} ]; then
+    echo "[PREPEND] \`shims/shim.css\` -> \`${path}\`"
+    cat shims/shim.css ${css} > ${css}.new
+    mv ${css}.new ${css}
+  fi
+done
 
+# Also handle css files at 'root'
+DEST=`ls ${PREFIX}/*.css`
 for css in ${DEST}
 do
   path=`echo ${css} 2> /dev/null`
@@ -1320,7 +1461,7 @@ do
 
     if [[ ${domain} == "studio.code.org" || ${domain} == "tts.code.org" || ${domain} == "images.code.org" ]]; then
       mkdir -p ${PREFIX}/${dir}
-      download_shared "--reject-regex=\"[.]dmg$|[.]exe$|[.]mp4$\" --exclude-domains=videos.code.org" ${url} "${PREFIX}/wget-parsed-static.log"
+      download_shared "--reject-regex=\"${REJECT_REGEX}\" --exclude-domains=videos.code.org" ${url} "${PREFIX}/wget-parsed-static.log"
     fi
   done
 done
@@ -1372,7 +1513,7 @@ if [[ ! -z "${LIBRARIES/$'\n'/}" ]]; then
     filename=$(basename "${url}")
 
     mkdir -p ${PREFIX}/${dir}
-    download_shared "--reject-regex=\"[.]dmg$|[.]exe$|[.]mp4$\" --exclude-domains=videos.code.org" https://studio.code.org/${dir}/${filename} "${PREFIX}/wget-assets.log"
+    download_shared "--reject-regex=\"${REJECT_REGEX}\" --exclude-domains=videos.code.org" https://studio.code.org/${dir}/${filename} "${PREFIX}/wget-assets.log"
   done
 else
   echo ""
@@ -1453,6 +1594,13 @@ if [[ -z "${IS_COURSE}" ]]; then
 else
   echo "<meta http-equiv=\"refresh\" content=\"0; URL=${BUILD_DIR}/s-${STARTING_LOCALE}/${COURSE}.html\" />" > ${PREFIX}/zip-root/index.html
 fi
+echo "[CREATE] \`index.html\` for teachers"
+mkdir -p ${PREFIX}/zip-root-teacher
+if [[ -z "${IS_COURSE}" ]]; then
+  echo "<meta http-equiv=\"refresh\" content=\"0; URL=${BUILD_DIR}/s-${STARTING_LOCALE}/${COURSE}/lessons/${LESSON}.html\" />" > ${PREFIX}/zip-root-teacher/index.html
+else
+  echo "<meta http-equiv=\"refresh\" content=\"0; URL=${BUILD_DIR}/s-${STARTING_LOCALE}/${COURSE}/lessons/1.html\" />" > ${PREFIX}/zip-root-teacher/index.html
+fi
 echo "[CREATE] \`sandbox.html\`"
 echo "<html><head><style>body,html{padding:0;margin:0;width:100%;height:100%;}iframe{position:absolute;left:0;right:0;top:0;bottom:0;width:100%;height:100%;}</style></head><body><iframe src=\"index.html\" sandbox=\"allow-scripts allow-same-origin\"></body></html>" > ${PREFIX}/sandbox.html
 echo "[CREATE] \`kolibri.html\`"
@@ -1482,6 +1630,19 @@ echo "[ZIP] \`${PREFIX}\` -> \`dist/${COURSE}/${BUILD_DIR}.zip\`"
 zip ${ROOT_PATH}/dist/${COURSE}/${BUILD_DIR}.zip -qr ${BUILD_DIR}
 cd ${ROOT_PATH}/${PREFIX}/zip-root
 zip ${ROOT_PATH}/dist/${COURSE}/${BUILD_DIR}.zip -qg index.html
+cd ${ROOT_PATH}
+
+echo
+echo "Creating \`./dist/${COURSE}/${BUILD_DIR}_teacher.zip\` ..."
+cd ${PREFIX}/..
+if [ -f ${ROOT_PATH}/dist/${COURSE}/${BUILD_DIR}_teacher.zip ]; then
+  echo "[DELETE] \`dist/${COURSE}/${BUILD_DIR}_teacher.zip\`"
+  rm ${ROOT_PATH}/dist/${COURSE}/${BUILD_DIR}_teacher.zip
+fi
+echo "[ZIP] \`${PREFIX}\` -> \`dist/${COURSE}/${BUILD_DIR}_teacher.zip\`"
+zip ${ROOT_PATH}/dist/${COURSE}/${BUILD_DIR}_teacher.zip -qr ${BUILD_DIR}
+cd ${ROOT_PATH}/${PREFIX}/zip-root-teacher
+zip ${ROOT_PATH}/dist/${COURSE}/${BUILD_DIR}_teacher.zip -qg index.html
 cd ${ROOT_PATH}
 
 echo ""
