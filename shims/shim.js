@@ -685,6 +685,18 @@ if (!window.__offline_replaced) {
                   }
                 });
               }
+
+              // Ensure links to levels work as expected
+              if (href && href.indexOf("/levels/") >= 0) {
+                href = href.split('?')[0];
+                if (!href.endsWith(".html")) {
+                  href = href + ".html";
+                }
+                link.setAttribute('href', href);
+                link.addEventListener('click', (event) => {
+                  window.location.href = href;
+                });
+              }
             });
           }
         }

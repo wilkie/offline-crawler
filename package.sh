@@ -361,17 +361,24 @@ download_googledoc() {
 
   # To:
   # https://docs.google.com/document/u/0/export?format=pdf&id=1ylIlO7Pppk6W3Jt58VHS5mjvnshg9URvj3iCU0Ok6qY
+
+  # The '/document/' part could be '/presentation/' for slides
   url=${1}
 
   # Get the id from the URL
   gdoc_id=`echo ${url} | grep -oe "/d/[^/]\+" | sed -u "s;/d/;;"`
+  document_type=`echo ${url} | grep -oe ".com/[^/]\+" | sed -u "s;.com;;"`
   echo ${gdoc_id}
-  pdf_url="https://docs.google.com/document/u/0/export?format=pdf&id=${gdoc_id}"
-  pdf_path=pdfs/${gdoc_id}.pdf
 
-  mkdir -p "${PREFIX}/pdfs"
+  pdf_path=
+  if [[ ! -z "${gdoc_id}" ]]; then
+    pdf_url="https://docs.google.com/${document_type}/u/0/export?format=pdf&id=${gdoc_id}"
+    pdf_path=pdfs/${document_type}/${gdoc_id}.pdf
 
-  wget ${SESSION} -nc -O ${PREFIX}/${pdf_path} ${pdf_url} |& tee -a ${2} | grep --line-buffered -ohe "[0-9]--\(\s\s.\+\)$" -e"Converting links in \(.\+\)$" | sed -u "s/in /[CONVERT-LINKS] /" | sed -u "s/--\s/ x [GET]/" | cut -d " " -f3,4
+    mkdir -p "${PREFIX}/pdfs/${document_type}"
+
+    wget ${SESSION} -nc -O ${PREFIX}/${pdf_path} ${pdf_url} |& tee -a ${2} | grep --line-buffered -ohe "[0-9]--\(\s\s.\+\)$" -e"Converting links in \(.\+\)$" | sed -u "s/in /[CONVERT-LINKS] /" | sed -u "s/--\s/ x [GET]/" | cut -d " " -f3,4
+  fi
 }
 
 # This function 'fixes' links in resources.
@@ -502,6 +509,9 @@ fixup() {
   if [[ ! -z ${replace_locale} ]]; then
     sed "s;\/s\/;\/s-${replace_locale}\/;g" -i ${path}
   fi
+
+  # Fix links to 'standards' pages
+  sed "s;\(\/s[^/]\+\/[^/]\+\)\/standards\([^.]\);${replace}\1\/standards.html\2;g" -i ${path}
 }
 
 # Determine if this is a full Course (multiple lessons) or a single Lesson
@@ -555,10 +565,13 @@ else
   fi
 fi
 
+# Things we are collecting. We like collecting URLs.
 FINISH_LINK=
 LESSON_LEVELS=
 LEVEL_URLS=
-PLAN_URLS=
+
+# Ensure we get the 'standards' page for teacher assessment
+PLAN_URLS="${STUDIO_DOMAIN}/s/${COURSE}/standards "
 for LESSON in ${LESSONS}
 do
   # Crawl initial page for the lesson
@@ -808,7 +821,6 @@ for locale in "${LOCALES[@]}"; do
     # Look at every level html file and lesson file
     LEVEL_PATHS=`ls ${PREFIX}/s/${COURSE}/lessons/${LESSON}/levels/*.html ${PREFIX}/s/${COURSE}/lessons/*.html`
     for level_path in ${LEVEL_PATHS}; do
-        echo "looking at ${level_path}"
       # Find popup videos by their download links
       video=`grep ${level_path} -ohe "data-download\s*=\s*['\"][^'\"]\+['\"]" | cut -d '"' -f2 | sed -u "s;${VIDEO_DOMAIN}/;;" | sed -u "s;https://videos.code.org/;;"`
       if [[ ! -z "${video/$'\n'/}" ]]; then
@@ -837,14 +849,14 @@ for locale in "${LOCALES[@]}"; do
       # Find youtube links
       videos=`grep ${level_path} -ohe "youtube.com/watch[^\")]\+"`
       for yt_url in ${videos}; do
-        echo "[FOUND] \`${yt_url}\`"
+        echo "[FOUND] \`${yt_url}\` (youtube)"
         YT_URLS="${YT_URLS} ${yt_url}"
       done
 
       # Find google doc links
-      gdocs=`grep ${level_path} -ohe "\(http[s]\?://\)\?docs.google.com/[^\")]\+"`
+      gdocs=`grep ${level_path} -ohe "\(http[s]\?://\)\?docs.google.com/[^\"#& )]\+"`
       for gdoc_url in ${gdocs}; do
-        echo "[FOUND] \`${gdoc_url}\`"
+        echo "[FOUND] \`${gdoc_url}\` (gdoc)"
         GDOC_URLS="${GDOC_URLS} ${gdoc_url}"
       done
     done
@@ -877,7 +889,9 @@ for locale in "${LOCALES[@]}"; do
       # This function sets `gdoc_id` and `pdf_path`
       download_googledoc "${gdoc_url}" "${PREFIX}/wget-gdocs.log"
 
-      GDOC_PDFS="${gdoc_id}=${pdf_path} ${GDOC_PDFS}"
+      if [[ ! -z "${pdf_path}" ]]; then
+        GDOC_PDFS="${gdoc_id}=${pdf_path} ${GDOC_PDFS}"
+      fi
     done
 
     # Other dynamic content we want wholesale downloaded (transcripts for the videos)
@@ -1111,6 +1125,9 @@ for locale in "${LOCALES[@]}"; do
     fixup ${path} "../../.." ${locale}
   done
 
+  # Fix up standards page
+  fixup "${PREFIX}/s/${COURSE}/standards.html" "../.." ${locale}
+
   # Copy over webpacked chunks
 
   echo ""
@@ -1314,6 +1331,9 @@ echo "Adding JS/CSS shims..."
 DEST="${PREFIX}/assets/application*.js ${PREFIX}/js/jquery.min*.js ${PREFIX}/assets/js/webpack*.js ${PREFIX}/assets/js/vendor*.js ${PREFIX}/assets/js/essential*.js ${PREFIX}/assets/js/common*.js ${PREFIX}/assets/js/code-studio-*.js"
 DEST=`ls ${DEST}`
 
+YOUTUBE_VIDEOS=(${YOUTUBE_VIDEOS})
+GDOC_PDFS=(${GDOC_PDFS})
+
 for js in ${DEST}
 do
   path=`echo ${js} 2> /dev/null`
@@ -1336,7 +1356,6 @@ do
 
     # Updates to add YOUTUBE_VIDEOS
     YOUTUBE_VIDEOS_ARRAY=
-    YOUTUBE_VIDEOS=(${YOUTUBE_VIDEOS})
     for yt_tuple in "${YOUTUBE_VIDEOS[@]}"; do
       if [[ -z "${YOUTUBE_VIDEOS_ARRAY}" ]]; then
         YOUTUBE_VIDEOS_ARRAY="${yt_tuple}"
@@ -1348,7 +1367,6 @@ do
 
     # Updates to add YOUTUBE_VIDEOS
     GDOC_PDFS_ARRAY=
-    GDOC_PDFS=(${GDOC_PDFS})
     for gdoc_tuple in "${GDOC_PDFS[@]}"; do
       if [[ -z "${GDOC_PDFS_ARRAY}" ]]; then
         GDOC_PDFS_ARRAY="${gdoc_tuple}"
