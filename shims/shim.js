@@ -1,6 +1,22 @@
 if (!window.__offline_replaced) {
   window.__offline_replaced = true;
 
+  // History API (to add .html to things)
+  window.__replaceState = window.history.replaceState;
+  window.history.replaceState = function() {
+    if (arguments[2] && !arguments[2].endsWith(".html")) {
+      arguments[2] = arguments[2] + ".html";
+    }
+    return window.__replaceState(arguments);
+  };
+  window.__pushState = window.history.pushState;
+  window.history.pushState = function() {
+    if (arguments[2] && !arguments[2].endsWith(".html")) {
+      arguments[2] = arguments[2] + ".html";
+    }
+    return window.__pushState(arguments);
+  };
+
   // This is the User model info given to the front-end components via
   // the 'users/current' api.
   const DEFAULT_USER = {
@@ -12,6 +28,9 @@ if (!window.__offline_replaced) {
     is_verified_instructor: false,
     under_13: false
   };
+
+  // This is the path prefix to replace absolute URLs with
+  const REPLACE = "%REPLACE%";
 
   // This is replaced by the crawler to a listing of all crawled locales
   const LOCALES = ["%LOCALES%"];
@@ -47,6 +66,21 @@ if (!window.__offline_replaced) {
       window.__indexedDB = window.indexedDB;
   }
   catch {
+  }
+
+  function rewriteURL(url) {
+    url = url.replace(REPLACE + "/s/", REPLACE.substring(0, REPLACE.length - 2));
+    if (url.indexOf("/s-") >= 0) {
+      url = REPLACE + "" + url.substring(url.indexOf("/s-"));
+    }
+    if (url[0] === "/") {
+      url = REPLACE + "" + url;
+    }
+    if (!url.endsWith(".html")) {
+      url = url + ".html";
+    }
+
+    return url;
   }
 
   function fixupLocaleDropdown() {
@@ -150,6 +184,21 @@ if (!window.__offline_replaced) {
           }
         };
       }
+      else if (call.startsWith("lock_status?")) {
+        response = {
+          data: {},
+          headers: {
+            "content-type": "application/json"
+          },
+        };
+      }
+      else if (call === "teacher_panel_section") {
+        response = {
+          data: null,
+          headers: {},
+          status: 204,
+        };
+      }
       else if (call === "channels") {
         // Get channel metadata
 
@@ -250,13 +299,24 @@ if (!window.__offline_replaced) {
 
           // Negotiate version
           let latest = window.localStorage.getItem(call + "/" + filename + "/latest");
-          response = {
-            data: window.localStorage.getItem(call + "/" + filename + "/versions/" + latest),
-            headers: {
-              "content-type": "application/json",
-              "s3-version-id": latest
-            }
-          };
+          if (latest == null) {
+            // No saved work
+            console.log("[api] no such file:", filename);
+            response = {
+              data: '{}',
+              headers: {},
+              status: 404,
+            };
+          }
+          else {
+            response = {
+              data: window.localStorage.getItem(call + "/" + filename + "/versions/" + latest) || '{}',
+              headers: {
+                "content-type": "application/json",
+                "s3-version-id": latest
+              },
+            };
+          }
         }
         else {
           // Store file
@@ -312,6 +372,14 @@ if (!window.__offline_replaced) {
     }
 
     return response;
+  }
+
+  // Handle window.open(...)
+  window.__open = window.open;
+  window.open = function(url) {
+    // Rewrite the url requested
+    url = rewriteURL(url);
+    window.__open(url);
   }
 
   // Disable sessionStorage
@@ -405,16 +473,7 @@ if (!window.__offline_replaced) {
             targetNode.querySelectorAll('a').forEach( (link) => {
               let url = link.getAttribute('href');
               if (url) {
-                url = url.replace("../../../../../s/", "../../../../");
-                if (url.indexOf("/s-") >= 0) {
-                  url = "../../../../.." + url.substring(url.indexOf("/s-"));
-                }
-                if (url[0] === "/") {
-                  url = "../../../../.." + url;
-                }
-                if (!url.endsWith(".html")) {
-                  url = url + ".html";
-                }
+                url = rewriteURL(url);
                 link.setAttribute('href', url);
               }
             });
@@ -571,7 +630,7 @@ if (!window.__offline_replaced) {
                 let url = link.getAttribute('href');
                 console.log("transforming", url);
                 if (url) {
-                  url = url.replace("../../../../../s/", "./");
+                  url = url.replace(REPLACE + "/s/", "./");
                   url = url.replace("../s/", "./");
                   if (!url.endsWith(".html")) {
                     url = url + ".html";
@@ -682,6 +741,48 @@ if (!window.__offline_replaced) {
                   if (compare_id === parts[1].split('/')[0]) {
                     href = "../../../" + pdf.split('=')[1];
                     link.setAttribute('href', href);
+                    link.addEventListener('click', (event) => {
+                      window.location.href = href;
+                    });
+                  }
+                });
+              }
+
+              // Handle youtube links
+              if (href && href.indexOf('youtube.com') >= 0) {
+                // Get the id
+                let parts = href.split('watch?v=');
+                YOUTUBE_VIDEOS.forEach( (video) => {
+                  let compare_id = video.split('=')[0];
+                  if (compare_id === parts[1].split('&')[0]) {
+                    // The link points to the mp4 of the file
+                    href = "../../../" + video.split('=')[1];
+                    link.setAttribute('href', href);
+
+                    // Place a video player at the link that also points to
+                    // the file. We need to embed the video-js css, probably.
+                    // Yet, the video-js JavaScript seems to always be loaded.
+                    let videoJSCSSLink = document.createElement("link");
+                    videoJSCSSLink.setAttribute('rel', 'stylesheet');
+                    videoJSCSSLink.setAttribute('href', '../../../blockly/video-js/video-js.css');
+                    document.head.appendChild(videoJSCSSLink);
+
+                    let videoPlayer = document.createElement("video");
+                    videoPlayer.setAttribute('width', '300px');
+                    videoPlayer.setAttribute('height', '150px');
+                    videoPlayer.setAttribute('preload', 'none');
+                    videoPlayer.setAttribute('data-setup', '{"nativeControlsForTouch": true}');
+                    videoPlayer.setAttribute('controls', '');
+                    videoPlayer.classList.add('video-js');
+                    videoPlayer.classList.add('lazyload');
+                    videoPlayer.classList.add('vjs-big-play-centered');
+
+                    let videoSource = document.createElement("source");
+                    videoSource.setAttribute('src', href);
+                    videoSource.setAttribute('type', 'video/mp4');
+                    videoPlayer.appendChild(videoSource);
+
+                    link.parentNode.appendChild(videoPlayer);
                   }
                 });
               }
@@ -721,13 +822,15 @@ if (!window.__offline_replaced) {
       // Deal with the weird proxy stuff via 'media?u='
       // stuff like: studio.learningequality.org/media?u=https%3A%2F%2Fstudi...
       let idx = url.indexOf("media?u");
-      if (idx > 0) {
+      while (idx > 0) {
         idx += 8;
         url = decodeURIComponent(url.substring(idx));
+        idx = url.indexOf("media?u");
       }
 
       // Now overwrite the code.org urls
       let domains = [
+        "https://levelbuilder-studio.code.org",
         "https://studio.code.org",
         "https://code.org",
       ];
@@ -748,7 +851,7 @@ if (!window.__offline_replaced) {
 
       // Transform absolute to relative (assuming level URL path)
       if (url[0] === "/") {
-        url = "../../../../.." + url;
+        url = REPLACE + "" + url;
       }
       arguments[1] = url;
 
@@ -757,16 +860,28 @@ if (!window.__offline_replaced) {
         let response = null;
         let path = url;
 
+        console.log("[CALL] [XHR]", url);
+
         // Redirect API calls to our own internal implementation
-        if (url.startsWith("../../../../../api/")) {
-          path = url.substring("../../../../../api/".length);
+        if (url.startsWith(REPLACE + "/api/")) {
+          path = url.substring((REPLACE + "/api/").length);
           response = callApi(method, path, data);
         }
 
         // API calls can also come in at these '/v3/' paths
-        if (url.startsWith("../../../../../v3/")) {
-          path = url.substring("../../../../../v3/".length);
+        if (url.startsWith(REPLACE + "/v3/")) {
+          path = url.substring((REPLACE + "/v3/").length);
           response = callApi(method, path, data);
+        }
+
+        // Milestone Reports
+        // These MUST succeed to tell the App to continue.
+        if (url.indexOf('/milestone/') >= 0) {
+          response = {
+            status: 200,
+            headers: [],
+            data: '{}'
+          };
         }
 
         try {
@@ -843,18 +958,18 @@ if (!window.__offline_replaced) {
   let oldFetch = window.fetch;
   window.fetch = function(url, options) {
     if (url[0] === "/") {
-      url = "../../../../.." + url;
+      url = REPLACE + "" + url;
     }
 
     response = null;
-    if (url.startsWith("../../../../../api/")) {
-      path = url.substring("../../../../../api/".length);
+    if (url.startsWith(REPLACE + "/api/")) {
+      path = url.substring((REPLACE + "/api/").length);
       response = callApi("GET", path);
     }
 
     // API calls can also come in at these '/v3/' paths
-    if (url.startsWith("../../../../../v3/")) {
-      path = url.substring("../../../../../v3/".length);
+    if (url.startsWith(REPLACE + "/v3/")) {
+      path = url.substring((REPLACE + "/v3/").length);
       response = callApi("GET", path);
     }
 
@@ -862,12 +977,32 @@ if (!window.__offline_replaced) {
       return new Promise( (resolve, reject) => {
         // If the response is an object, text is the JSON string for it:
         let text = response.data;
-        if (typeof response.data !== "string") {
+        if (text != null && typeof response.data !== "string") {
           text = JSON.stringify(response.data);
         }
+        response.status = response.status || 200;
+        let statusText = "OK";
+        if (response.status === 404) {
+          statusText = "Not found";
+        }
+        resolve(new Response(text, {
+          status: response.status,
+          headers: response.headers,
+          statusText: statusText,
+        }));
+      });
+    }
+
+    if (url.startsWith("./") && options.method == "POST") {
+      // "Fail" a POST successfully kind of
+      return new Promise( (resolve, reject) => {
+        // If the response is an object, text is the JSON string for it:
+        let text = "{}";
         resolve(new Response(text));
       });
     }
+
+    console.log("[CALL] [FETCH]", url);
 
     return oldFetch(url, options);
   };
@@ -876,17 +1011,17 @@ if (!window.__offline_replaced) {
   let oldSANS = window.Element.prototype.setAttributeNS;
   window.Element.prototype.setAttributeNS = function(namespace, name, url) {
     if (name === "xlink:href" && url[0] === "/") {
-      url = "../../../../.." + url;
+      url = REPLACE + "" + url;
     }
     return oldSANS.bind(this)(namespace, name, url);
   };
   let oldSA = window.Element.prototype.setAttribute;
   window.Element.prototype.setAttribute = function(name, url) {
     if (name === "src" && url[0] === "/") {
-      url = "../../../../.." + url;
+      url = REPLACE + "" + url;
     }
     if (name === "href" && url[0] === "/") {
-      url = "../../../../.." + url;
+      url = REPLACE + "" + url;
     }
     return oldSA.bind(this)(name, url);
   };
@@ -905,7 +1040,7 @@ if (!window.__offline_replaced) {
     let oldSrc = prototype.__lookupSetter__('src');
     prototype.__defineSetter__('src', function(url) {
       if (url[0] === "/") {
-        url = "../../../../.." + url;
+        url = REPLACE + "" + url;
       }
       // Also allows the image to be used inside unsafe contexts such as, of
       // course, a webgl texture!

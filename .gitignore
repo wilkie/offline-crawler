@@ -10,3 +10,9 @@ shared/
 account.sh
 *.jar
 sessions/
+usr/
+lib/
+*.tar.gz
+*.tar.xz
+jq*/
+jq-linux64

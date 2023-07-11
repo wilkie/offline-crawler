@@ -123,3 +123,20 @@ wrapped course.
 
 Kolibri offers some API access to "HTML5 apps" as noted in the above link, yet
 it unclear how an arbitrary application makes use of it.
+
+## Known Issues
+
+There are a number of issues that are in two categories. First, problems that
+are inherent to offline, such as a dependency on external service. (Offline
+Compatibility) Second, problems that are due to the crawling process not being
+refined enough, but it could possibly be addressed. (Crawler Bugs)
+
+### Offline Incompatibility
+
+* Internet Simulator prevents Unit 2 of CSP from being reasonable. It is entirely backend-driven.
+* Some ability to upload custom sprites, sounds, etc, are unavailable since they make direct use of S3.
+
+### Crawler Bugs
+
+* Extras page is crawled but sometimes does not show up when the lesson is completed fully.
+* Lesson plans might link to levels that exist elsewhere (and linked via their `/levels/{id}` path directly). These are not crawled.

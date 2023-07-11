@@ -1,4 +1,4 @@
-# Minecraft Adventure
+# Dance Party!
 
 NAME="Dance Party"
 
@@ -8,6 +8,9 @@ LESSON=1
 # Other URLs to crawl
 URLS="
 "
+
+# Restrict videos to be VERY small
+VIDEO_MAX_SIZE=10000000
 
 # Files to copy over (that might not be crawled)
 # The dance songs metadata I got from (after a build):
@@ -153,10 +156,6 @@ restricted/introtoshamstep_47SOUL.mp3
 restricted/isawthesign_aceofbase.mp3
 restricted/takeonme_aha.mp3
 restricted/showdaspoderosas_anitta.mp3
-"
-
-# Uncomment to pull down ALL the music
-BLAH="
 restricted/jinglebells_hollywoodchristmas.mp3
 restricted/notearslefttocry_arianagrande.mp3
 restricted/wakemeup_aviciialoeblacc.mp3

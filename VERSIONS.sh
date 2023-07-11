@@ -15,3 +15,11 @@ else
 fi
 
 FFMPEG_RELEASE_URL=https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-${ARCH}-static.tar.xz
+
+if [[ ${ARCH} == "arm64" ]]; then
+  JQ_LIB_URL=http://mirror.archlinuxarm.org/aarch64/community/oniguruma-6.9.8-1-aarch64.pkg.tar.xz
+  JQ_BINARY_URL=http://mirror.archlinuxarm.org/aarch64/community/jq-1.6-4-aarch64.pkg.tar.xz
+else
+  JQ_LIB_URL=
+  JQ_BINARY_URL=https://github.com/stedolan/jq/releases/download/jq-1.6/jq-linux64
+fi

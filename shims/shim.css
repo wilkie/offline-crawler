@@ -6,6 +6,16 @@
   display: none !important;
 }
 
+/* Turn off teacher panel */
+#teacher-panel-container {
+  display: none !important;
+}
+
+/* Turn off admin panel */
+.extra-links {
+  display: none !important;
+}
+
 /* Turn off some footer links (except privacy and tos) */
 .navbar-static-top.footer a:not([href$="privacy.html"]) + .dim, .navbar-static-top.footer .dim + a:not([href$="tos.html"]) {
   display: none !important;
