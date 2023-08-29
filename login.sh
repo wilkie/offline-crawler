@@ -1,7 +1,18 @@
 #!/bin/bash
 
 ROOT_PATH=$(realpath $(dirname $0))
+
+if [[ ! -f ${ROOT_PATH}/account.sh ]]; then
+    echo "Account information not found in \`account.sh\`"
+    echo ""
+    echo "Write a file called \`account.sh\` in the root of this repo."
+    echo "In it define USERNAME and PASSWORD variables."
+    echo "Use \`example.account.sh\` as a guide."
+    exit 1
+fi
+
 source ${ROOT_PATH}/account.sh
+exit
 
 # Get the appropriate data
 export HASHED_EMAIL=($(printf "${USERNAME}" | md5sum))

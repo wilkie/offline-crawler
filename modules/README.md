@@ -12,6 +12,10 @@ crawler hits first is related to these:
 
 `http://localhost-studio.code.org:3000/s/${COURSE}/lessons/${LESSON}/levels/1`
 
+If you need to login to view something, you will need to create an `account.sh`
+file with your `USERNAME` and `PASSWORD` to crawl the page. You then specify
+`LOGIN=1` in your module.
+
 The `URLS` list is a set of other pages to crawl and make available in the
 resulting package. These are pulled in a similar way to the level pages. This
 was originally used to ensure video transcripts were downloaded, but the
@@ -39,6 +43,11 @@ we need them.
 The `VIDEOS` section lists relative URLs for the videos to find from one of our
 content domains. Our crawler does a good job of determining the videos used by
 lessons automatically, but you can add others here manually.
+
+The `before()` callback can be added to discover assets before crawling the
+normal level content. So it lets you discover pages dynamically. It's useful for
+crawling documentation pages so they get crawled and their links "fixed" in the
+normal flow of the crawler.
 
 The `after()` callback can be added to your module to specifically perform any
 operation at the end of the crawl but before the packaging starts. This is useful

@@ -86,6 +86,7 @@ if [[ -z "${VIDEO_MAX_SIZE}" ]]; then
 fi
 echo "Using video max size: ${VIDEO_MAX_SIZE} bytes"
 
+# Always use the remote site, unless otherwise requested
 if [[ -z "${USE_REMOTE}" ]]; then
     USE_REMOTE=1
 fi
@@ -187,7 +188,14 @@ SESSION=
 HASHED_EMAIL=
 if [[ ! -z "${LOGIN}" ]]; then
   echo ""
+  set -o pipefail # Ensure that error codes aren't swallowed by tee
   ${ROOT_PATH}/login.sh --quiet | tee ${ROOT_PATH}/${PREFIX}/login-log.txt
+  if [[ $? != 0 ]]; then
+      echo ""
+      echo "Login specified in the module but failed in \`package.sh\`"
+      exit 1
+  fi
+  set +o pipefail
   echo ""
   SESSION_COOKIE=`cat ${ROOT_PATH}/${PREFIX}/login-log.txt | grep -C0 -e "Successfully logged in: " | sed -e "s;Successfully logged in: ;;"`
 

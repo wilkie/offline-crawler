@@ -124,6 +124,11 @@ wrapped course.
 Kolibri offers some API access to "HTML5 apps" as noted in the above link, yet
 it unclear how an arbitrary application makes use of it.
 
+Uploading to Kolibri is done via [Kolibri Studio](https://studio.learningequality.org/).
+If you are a Code.org engineer, you can access and edit our official modules via our
+shared login. Currently, the Code.org channel is private and shared only via the channel
+token.
+
 ## Known Issues
 
 There are a number of issues that are in two categories. First, problems that
