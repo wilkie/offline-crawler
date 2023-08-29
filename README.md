@@ -2,12 +2,22 @@
 
 This builds static versions of certain sections of the code.org site.
 
+## Other Documentation:
+
+* [`LOCALIZING.md`](LOCALIZING.md): Comments on localizing offline modules.
+* [`modules/README.md`](modules/README.md): What a "module description" looks like.
+
 ## Dependencies
 
 This is entirely written as a bash script. This is precisely so that it does
 not require a lot of maintenance. So it just requires `bash`, `sed`,
 `grep`, `cut`, and `wget`. All but `wget` are commonly pre-installed into a
-Unix enviroment such as OS X and Linux.
+Unix-ish enviroment such as OS X and Linux.
+
+Other dependencies it might use are downloaded as it needs it. This includes
+`ffmpeg` (video transcoding to compress videos) and `jq` (JSON parser to help
+find assets.) It should properly work on both ARM and X86 machines as tested
+on Linux.
 
 ## Basic Usage
 
@@ -55,18 +65,50 @@ crash the app in some sandboxed environments (see the Kolibri section below) and
 adds style shims to hide some elements of the UI that are not relevant on an
 offline experience (e.g. sign up button).
 
-Just run:
+## End-to-End Guide
+
+### Basic Steps
+
+The crawler will produce a zip file containing a static version of the code.org
+website that is compatible with both Kolibri and RACHEL. Basic steps:
+
+* Have a built and ready code-dot-org development environment.
+* Pull down the offline-crawler repository such that the “offline-crawler” is in
+the same directory as “code-dot-org” (say, your home directory.)
+* Go into the “modules” directory and review the modules we have.
+* Run the crawler for, say, the minecraft hour of code:
 
 ```
-./package.sh mc_1
+../package.sh minecraft
 ```
 
-It produces (for minecraft lesson 1):
+**Note**: By default, this will pull down ALL locales and translations. It takes
+quite a while. To pull down just a few (we do this for Express modules since those
+are larger):
 
 ```
-./dist/mc/mc_1.zip
+LOCALES="en_US fr_FR es_MX" ../package.sh minecraft
 ```
 
+This will produce a zip file in “dist” for Kolibri/RACHEL:
+
+```
+ls ../dist/minecraft/minecraft.zip
+```
+
+If this is a full lesson, the “teacher” view containing the lesson plan as the
+initial page of the module is also built:
+
+```
+ls ../dist/minecraft/minecraft_teacher.zip
+```
+
+**Note**:
+Some large assets are downloaded outside of the `build` path so they are effectively
+cached and shared among all builds. These include videos, and restricted
+music data.
+
+**Note**:
 It can produce other things by editing `COURSE` and `LESSON` environment variables.
 We generalize this by building out separate shell scripts for each module that
 define specific resources each need. See `./modules/mc_1.sh` and such for examples
@@ -80,12 +122,22 @@ will allow building that module via:
 ./package.sh foo_1
 ```
 
-And seeing, if successful, the zip in `./dist/foo/foo_1.zip` and the contents of
-those zip packages in: `./build/foo_1/`.
+### To, then, upload to Kolibri:
 
-Some large assets are downloaded outside of the `build` path so they are effectively
-cached and shared among all builds. These include videos, and restricted
-music data.
+* Review your access to the Kolibri Studio account in 1Password’s “Shared Engineering” group. (Ask Infra or Platform for access.)
+* Log on to Kolibri Studio as our Engineering account.
+* Navigate to the “code.org” channel. Create the appropriate folder for your content or find the existing module.
+* Create or edit the module. Upload the zip file and it will automatically create the right module. When replacing content, just re-upload: edit the module and click on the existing zip file link which will unintuitively let you choose a new file.
+* Thumbnails are nice to have. Those are images that are around 480 by 272 pixels. Existing Thumbnails are located in Google Drive including a useful SVG template.
+* Don’t forget to press “Save”
+
+### To publish the code.org Kolibri channel:
+
+* On Kolibri Studio, navigate to the code.org channel.
+* Review that the top-right of the Kolibri website suggests there are publishable changes.
+* In that same top-right corner, press the Publish button. Click through any confirmations.
+* Downstream users will be notified whenever possible of these changes and can synchronize when their device has an Internet connection.
+* To provide folks with the channel, they need the channel token. When navigating the code.org channel, find that at the top-right navigation menu under “Get Token.”
 
 ## Module Description File
 
@@ -95,6 +147,27 @@ directory, is simply "sourced" into the packager script such that the variables
 defined in the module description are used by the crawler.
 
 This is described in greater detail in [`modules/README.md`](modules/README.md).
+
+## Localization
+
+The crawler already pulls down different localizations and provides a means
+to switch them. By default, it will pull down all locales for a module when
+building the offline module. To just build a subset, provide them within the
+`LOCALES` environment variable:
+
+```
+cd modules
+LOCALES="en_US fr_FR es_MX" ../package.sh minecraft
+```
+
+The process of pulling a locale essentially multiplies the amount of time it
+takes to crawl a module by the number of locales. It is the greatest factor
+in the time it takes to complete. It is absolutely recommended to just crawl
+a common of locales when testing the crawl of a particular module.
+
+For more information, including comments on conventions on publishing localized
+modules and issues dealing with constraints such as file size,
+see [`LOCALIZING.md`](LOCALIZING.md).
 
 ## Kolibri / Endless OS Modules
 
